@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover lets the game use the whole screen; we pad UI with safe-area insets instead. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0d0f0c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Outpost Line" />
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <title>Outpost Line</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0d0f0c;
+        color: #e8dcc0;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        /* Stop Safari from scrolling, rubber-banding, selecting text or showing the long-press menu. */
+        overscroll-behavior: none;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+      }
+      #rotate {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        background: #0d0f0c;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 16px;
+        font-size: 20px;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: #f2a93b;
+      }
+      #rotate .icon {
+        width: 64px;
+        height: 96px;
+        border: 4px solid #f2a93b;
+        border-radius: 10px;
+        animation: tilt 1.6s ease-in-out infinite;
+      }
+      @keyframes tilt {
+        50% {
+          transform: rotate(-90deg);
+        }
+      }
+      @media (orientation: portrait) {
+        #rotate {
+          display: flex;
+        }
+      }
+      #update-toast {
+        display: none;
+        position: fixed;
+        z-index: 20;
+        left: 50%;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        transform: translateX(-50%);
+        padding: 14px 22px;
+        min-height: 48px;
+        box-sizing: border-box;
+        border: 2px solid #f2a93b;
+        border-radius: 8px;
+        background: #1b1d18;
+        color: #f2a93b;
+        font: 600 17px system-ui, -apple-system, sans-serif;
+        letter-spacing: 0.06em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="rotate"><div class="icon"></div>Rotate to landscape</div>
+    <button id="update-toast" type="button">Update ready: tap to reload</button>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

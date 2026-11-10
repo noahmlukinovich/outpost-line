@@ -3,7 +3,7 @@
 > Working title. A top-down military sci-fi tower defense game for iPad (installable PWA).
 > All factions, units, names and art are original.
 >
-> Status: **Draft v0.1, waiting for review.** Items marked **[Q#]** are open questions (listed at the end).
+> Status: **v0.2. Design approved; M0 built.** Items marked **[Q#]** are open questions (listed at the end).
 > Items marked *(proposal)* fill gaps in the brief and can be changed.
 
 ---
@@ -35,9 +35,9 @@ Then you watch the defense hold, or break.
 | Decision | Choice | Why |
 |---|---|---|
 | Language | **TypeScript** | Catches mistakes at build time; data files get autocompletion and type checks. |
-| Engine | **Phaser 3** (latest 3.x) | Mature, fast WebGL 2D renderer, good touch input, lots of docs and examples. A good fit; no reason to switch. |
+| Engine | **Phaser 4** (4.2.x) | Phaser 4 is now the current release: nearly the same API as Phaser 3, with a faster renderer and a better lighting/filter system for the Door Kickers look. |
 | Build | **Vite** + **vite-plugin-pwa** | Instant dev reloads, simple static build, generates the service worker and manifest for us. |
-| Hosting | **GitHub Pages** via a GitHub Actions workflow | Free HTTPS (needed for PWA install and offline mode); deploys on every push to `main`. |
+| Hosting | **GitHub Pages** (`noahmlukinovich/outpost-line`, public) via a GitHub Actions workflow | Free HTTPS (needed for PWA install and offline mode); deploys on every push to `main`. |
 | Saves | Small `SaveSystem` module over **localStorage** (versioned JSON, with migrations) | Save data is tiny (a few KB). localStorage is simplest; the module hides it, so switching to IndexedDB later only touches one file. |
 | Tests | **Vitest** for simulation/data tests | The simulation is plain TS (see §9), so balance math and wave logic can be unit-tested without a browser. |
 | Audio | Procedural placeholder SFX via WebAudio (sfxr-style generator) | No licensing issues; can be replaced through the asset manifest later. |
@@ -49,7 +49,10 @@ Then you watch the defense hold, or break.
 - iOS only allows audio after a user gesture, so the title screen has a "Tap to deploy" button
   that also unlocks audio.
 - Pinch-zoom/double-tap-zoom of the *page* is disabled so gestures go to the game.
-- **Testing over local network:** `npm run dev -- --host` serves on your LAN IP. Gameplay works
+- **Target devices:** iPad Pro (M5) and **iPad mini** (the mini's ~1024×768pt landscape screen is the
+  layout baseline: HUD must fit and units must stay readable there).
+- **Testing over local network (dev machine: Chromebook, Linux dev environment):** `npm run dev:lan` plus
+  ChromeOS port forwarding for port 5173; see README. Gameplay works
   over plain `http://192.168.x.x:5173`, but **service workers and install need HTTPS**. To test
   those during development we'll use one of two options (set up in M1):
   (a) a free temporary HTTPS tunnel (e.g. `cloudflared`), the easiest; or
@@ -359,7 +362,7 @@ cover** deferred to M5.
 
 | # | Goal | Contents | You can test |
 |---|---|---|---|
-| **M0** | Pipeline | Vite+TS+Phaser project, PWA (manifest, service worker, icons), GitHub Pages deploy action, empty "Tap to deploy" scene, README | Install on iPad home screen, launches full-screen landscape, works in airplane mode |
+| **M0** ✅ | Pipeline | Vite+TS+Phaser project, PWA (manifest, service worker, icons), GitHub Pages deploy action, empty "Tap to deploy" scene, README | Install on iPad home screen, launches full-screen landscape, works in airplane mode |
 | **M1** | Core loop | Map 1 (Tiled JSON), sim core (fixed tick, pools, spatial hash), free placement + cover, facing arcs + rotate, rally points, **Rifle + Heavy Weapons I→III**, **Skitter / Warden / Ironback**, supplies, 10 waves with preview, call-early, integrity, win/lose, pause/1x/2x, selling, pan/zoom, core juice + placeholder SFX, asset manifest, settings saved | A full mission with real decisions |
 | **M2** | Depth | Specializations + abilities for Rifle/Heavy, **Sniper + Engineers**, Power/Reactors + tiers, Supply Depots, Command Cap, veterancy, targeting priorities | Economy vs. defense choices; spec builds feel different |
 | **M3** | Threats | Veilstalker, Skyray, Tender, Brood Barge, Colossus boss, Motor Pool + both vehicles, 4 commander powers, map 2 | Each enemy forces a counter; boss fight |
@@ -373,16 +376,12 @@ At the end of each milestone you get: what changed, how to run it locally and on
 
 ## 12. Open questions
 
-- **[Q1] Rally point meaning:** OK with the "anchor + leash; troopers stand at the rally point"
-  model? Close-range squads can then step up to **block** melee enemies, like KR barracks.
-- **[Q2] Squad losses:** squads take damage, lose troopers, reinforce for free, and go "Down"
-  temporarily if wiped (never permanently lost). Or should a wiped squad be **gone** (harsher, more Door Kickers)?
+- ~~[Q1] Rally point meaning~~ **Decided:** anchor + leash; troopers stand at the rally point; close-range squads can block.
+- ~~[Q2] Squad losses~~ **Decided:** squads go "Down" temporarily when wiped and redeploy after a timer.
 - **[Q3] Destructible cover:** want it (in M5), or should cover stay permanent for clearer planning?
 - **[Q4] Should any enemies attack buildings** (Depots/Reactors), or do only squads and the gate take damage?
-- **[Q5] GitHub:** what's your GitHub username, and is a **public** repo OK? (Free GitHub Pages
-  needs a public repo unless you have a paid plan.) Suggested repo name: `outpost-line`.
-- **[Q6] Your dev machine:** Mac or Windows? This changes the local-network testing instructions
-  slightly. Which iPad model (for performance targets and screen size)?
+- ~~[Q5] GitHub~~ **Decided:** `noahmlukinovich/outpost-line` (public, for free Pages).
+- ~~[Q6] Devices~~ **Decided:** Chromebook for dev; iPad mini + iPad Pro M5 for play.
 - **[Q7] Title:** happy with "Outpost Line", or do you have a name in mind?
 - **[Q8] Difficulty feel:** Kingdom Rush (forgiving, chill) or Bloons-late-game (punishing)? I'd
   default to KR-like on Normal, with Heroic for the hardcore.
