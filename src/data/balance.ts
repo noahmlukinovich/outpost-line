@@ -49,6 +49,17 @@ export const Balance = {
   /** Splash damage at the edge of the blast radius (fraction of center damage). */
   splashEdgeFactor: 0.5,
 
+  /** Total Power needed for Tech 2 and Tech 3. */
+  techPower: [6, 15],
+
+  /** Veterancy: XP (= bounty of enemies killed) needed for ranks 1, 2, 3. */
+  veterancyXp: [25, 80, 180],
+  /** Per veterancy rank: damage, fire-rate and HP multipliers (stack additively). */
+  veterancyBonus: { damage: 0.08, rof: 0.05, hp: 0.08 },
+
+  /** Default position of auto-turrets relative to the squad (units, sideways). */
+  turretSpacing: 38,
+
   /** Stars: integrity fraction remaining required for 2★ and 3★. */
   starThresholds: [0.5, 0.9],
 } as const;

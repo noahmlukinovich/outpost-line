@@ -10,9 +10,11 @@ export const Missions: MissionDef[] = [
     briefing: 'Choir scouts are probing the ridge road. Hold the gate for ten waves.',
     mapJson: outpost01Map,
     waves: Outpost01Waves,
-    startingSupplies: 260,
+    startingSupplies: 320,
     integrity: 20,
-    units: ['rifle', 'heavy'],
+    commandCap: 8,
+    units: ['rifle', 'heavy', 'sniper', 'engineer'],
+    buildings: ['depot', 'reactor'],
   },
 ];
 

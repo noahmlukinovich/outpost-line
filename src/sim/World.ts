@@ -2,20 +2,23 @@
  * The game simulation: all rules, no graphics.
  *
  * Call `step()` a fixed number of times per second (Balance.tickRate). The UI changes the game
- * only through the command methods (placeSquad, upgrade, sell, rotate, setRally, callWave…),
- * which validate everything in one place.
+ * only through the command methods (place, upgrade, specialize, buyAbility, sell, rotate,
+ * setRally, callWave…), which validate everything in one place.
  */
 import { Balance } from '../data/balance';
+import { getBuilding, isBuildingId } from '../data/buildings';
 import { getCover } from '../data/cover';
 import { getEnemy } from '../data/enemies';
-import type { MissionDef, TargetMode, UnitDef, WaveGroup } from '../data/types';
+import { getSpec } from '../data/specs';
+import type { AbilityDef, DamageType, MissionDef, SpecDef, TargetMode, Tech, UnitDef, WaveGroup } from '../data/types';
 import { getUnit } from '../data/units';
 import { angleDiff, type Path, type Vec } from '../maps/geometry';
 import { isTerrainBuildable, loadTiledMap, type CoverPoint, type MapModel } from '../maps/loadMap';
-import type { Enemy, Projectile, Squad, Trooper } from './entities';
+import type { Building, Enemy, Placeable, Projectile, Squad, Trooper, Turret } from './entities';
 import type { SimEvents } from './events';
 import { Rng } from './Rng';
 import { SpatialHash } from './SpatialHash';
+import { computeStats, type SquadStats } from './stats';
 
 export type GameState = 'prep' | 'running' | 'won' | 'lost';
 
@@ -26,6 +29,9 @@ export interface PlacementCheck {
   cover: CoverPoint | null;
   reason: string;
 }
+
+/** Why an upgrade/spec/ability can't be bought right now ('' = it can). */
+export type BuyCheck = { ok: boolean; cost: number; reason: string };
 
 interface ActiveGroup {
   group: WaveGroup;
@@ -57,6 +63,7 @@ export class World {
   countdownTotal = Balance.waveCountdown;
 
   readonly squads: Squad[] = [];
+  readonly buildings: Building[] = [];
   readonly enemies: Enemy[] = [];
   readonly projectiles: Projectile[] = [];
 
@@ -70,7 +77,9 @@ export class World {
   private readonly coverOccupant = new Map<number, Squad>();
   private readonly hash: SpatialHash<Enemy>;
   private readonly near: Enemy[] = [];
+  private readonly picks: Enemy[] = [];
   private readonly tmp: Vec = { x: 0, y: 0 };
+  private lastTech: Tech = 1;
 
   constructor(mission: MissionDef, seed = 1) {
     this.mission = mission;
@@ -88,7 +97,8 @@ export class World {
       getEnemy(g.enemy);
       if (g.path && !this.map.paths.some((p) => p.name === g.path)) throw new Error(`Wave references unknown path "${g.path}"`);
     }
-    for (const u of mission.units) getUnit(u);
+    for (const u of mission.units) for (const s of getUnit(u).specs) getSpec(s);
+    for (const b of mission.buildings) getBuilding(b);
   }
 
   get totalWaves(): number {
@@ -101,46 +111,113 @@ export class World {
     return 1 + (f >= Balance.starThresholds[0] ? 1 : 0) + (f >= Balance.starThresholds[1] ? 1 : 0);
   }
 
-  // ================================================================== commands
+  get power(): number {
+    let p = 0;
+    for (const b of this.buildings) p += b.def.tiers[b.tier].power ?? 0;
+    return p;
+  }
 
-  checkPlacement(unitId: string, x: number, y: number): PlacementCheck {
-    const def = getUnit(unitId);
+  get tech(): Tech {
+    const p = this.power;
+    return p >= Balance.techPower[1] ? 3 : p >= Balance.techPower[0] ? 2 : 1;
+  }
+
+  get capUsed(): number {
+    let c = 0;
+    for (const s of this.squads) c += s.def.cap;
+    return c;
+  }
+
+  get capMax(): number {
+    return this.mission.commandCap;
+  }
+
+  get income(): number {
+    let i = 0;
+    for (const b of this.buildings) i += b.def.tiers[b.tier].income ?? 0;
+    return i;
+  }
+
+  get isOver(): boolean {
+    return this.state === 'won' || this.state === 'lost';
+  }
+
+  /** Every unit the player can build in this mission. */
+  get buildableUnits(): UnitDef[] {
+    return this.mission.units.map(getUnit);
+  }
+
+  // ================================================================== placement
+
+  /** Footprint radius and first-tier cost for a unit or building id. */
+  private placeInfo(id: string): { footprint: number; cost: number; isUnit: boolean } {
+    if (isBuildingId(id)) {
+      const b = getBuilding(id);
+      return { footprint: b.footprint, cost: b.tiers[0].cost, isUnit: false };
+    }
+    const u = getUnit(id);
+    return { footprint: u.footprint, cost: u.tiers[0].cost, isUnit: true };
+  }
+
+  checkPlacement(id: string, x: number, y: number): PlacementCheck {
+    const info = this.placeInfo(id);
     const res: PlacementCheck = { ok: false, x, y, cover: null, reason: '' };
-    // Snap onto a free cover point if close enough.
-    let best: number = Balance.coverSnapDistance;
-    for (const c of this.map.cover) {
-      if (this.coverOccupant.has(c.index)) continue;
-      const d = Math.hypot(c.x - x, c.y - y);
-      if (d < best) {
-        best = d;
-        res.cover = c;
-        res.x = c.x;
-        res.y = c.y;
+    if (info.isUnit) {
+      // Snap onto a free cover point if close enough.
+      let best: number = Balance.coverSnapDistance;
+      for (const c of this.map.cover) {
+        if (this.coverOccupant.has(c.index)) continue;
+        const d = Math.hypot(c.x - x, c.y - y);
+        if (d < best) {
+          best = d;
+          res.cover = c;
+          res.x = c.x;
+          res.y = c.y;
+        }
       }
     }
-    if (!isTerrainBuildable(this.map, res.x, res.y, def.footprint * 0.6)) {
+    if (!isTerrainBuildable(this.map, res.x, res.y, info.footprint * 0.6)) {
       res.reason = 'Blocked terrain';
       return res;
     }
     for (const p of this.map.paths) {
-      const clear = p.width / 2 + def.footprint + Balance.pathClearance;
+      const clear = p.width / 2 + info.footprint + Balance.pathClearance;
       if (p.distSqTo(res.x, res.y) < clear * clear) {
         res.reason = 'Too close to the road';
         return res;
       }
     }
+    if (!info.isUnit) {
+      // Buildings may not sit on cover points (keep them for squads).
+      for (const c of this.map.cover) {
+        if (Math.hypot(c.x - res.x, c.y - res.y) < info.footprint + 18) {
+          res.reason = 'Cover is for squads';
+          return res;
+        }
+      }
+    }
     for (const s of this.squads) {
-      const min = s.def.footprint + def.footprint;
+      const min = s.def.footprint + info.footprint;
       if (Math.hypot(s.anchorX - res.x, s.anchorY - res.y) < min || Math.hypot(s.x - res.x, s.y - res.y) < min) {
-        res.reason = 'Overlaps another squad';
+        res.reason = 'Overlaps a squad';
         return res;
       }
     }
-    if (this.supplies < def.tiers[0].cost) {
+    for (const b of this.buildings) {
+      if (Math.hypot(b.x - res.x, b.y - res.y) < b.def.footprint + info.footprint) {
+        res.reason = 'Overlaps a building';
+        return res;
+      }
+    }
+    if (info.isUnit && this.capUsed + getUnit(id).cap > this.capMax) {
+      res.reason = `Command Cap full (${this.capUsed}/${this.capMax})`;
+      return res;
+    }
+    if (this.supplies < info.cost) {
       res.reason = 'Not enough supplies';
       return res;
     }
-    if (this.state === 'won' || this.state === 'lost') {
+    if (this.isOver) {
       res.reason = 'Mission over';
       return res;
     }
@@ -164,6 +241,26 @@ export class World {
     return Math.atan2(fy - y, fx - x);
   }
 
+  /** Place a unit or building. Returns the new entity, or null if not allowed. */
+  place(id: string, x: number, y: number, facing?: number): Placeable | null {
+    return isBuildingId(id) ? this.placeBuilding(id, x, y) : this.placeSquad(id, x, y, facing);
+  }
+
+  placeBuilding(id: string, x: number, y: number): Building | null {
+    const check = this.checkPlacement(id, x, y);
+    if (!check.ok) return null;
+    const def = getBuilding(id);
+    this.supplies -= def.tiers[0].cost;
+    const b: Building = {
+      kind: 'building', id: this.nextId++, def, tier: 0, invested: def.tiers[0].cost,
+      placedAtWave: this.wavesStarted, x: check.x, y: check.y, removed: false,
+    };
+    this.buildings.push(b);
+    this.events.buildingPlaced?.(b);
+    this.checkTech();
+    return b;
+  }
+
   placeSquad(unitId: string, x: number, y: number, facing?: number): Squad | null {
     const check = this.checkPlacement(unitId, x, y);
     if (!check.ok) return null;
@@ -172,9 +269,15 @@ export class World {
     this.supplies -= cost;
     const f = facing ?? this.suggestFacing(check.x, check.y);
     const squad: Squad = {
+      kind: 'squad',
       id: this.nextId++,
       def,
       tier: 0,
+      spec: null,
+      abilities: [],
+      stats: computeStats({ def, tier: 0, spec: null, abilities: [], rank: 0 }),
+      xp: 0,
+      rank: 0,
       invested: cost,
       placedAtWave: this.wavesStarted,
       anchorX: check.x,
@@ -186,6 +289,7 @@ export class World {
       facing: f,
       targetMode: 'first',
       troopers: [],
+      turrets: [],
       cover: null,
       down: false,
       downTimer: 0,
@@ -193,12 +297,19 @@ export class World {
       reinforceTimer: 0,
       engagedBy: 0,
       crewCooldown: 0.5,
+      flameCd: 1,
+      grenadeCd: 2,
+      reviveCd: 0,
+      spin: 0,
+      lastTargetId: -1,
       target: null,
       kills: 0,
       removed: false,
+      auraRof: 1,
+      auraReinforce: 1,
     };
     for (let i = 0; i < def.troopers; i++) {
-      const t: Trooper = { alive: true, hp: def.tiers[0].trooperHp, x: 0, y: 0, prevX: 0, prevY: 0, angle: f, cooldown: this.rng.range(0, 0.6) };
+      const t: Trooper = { alive: true, hp: squad.stats.hp, x: 0, y: 0, prevX: 0, prevY: 0, angle: f, cooldown: this.rng.range(0, 0.6) };
       squad.troopers.push(t);
     }
     this.layoutTroopers(squad, true);
@@ -208,42 +319,121 @@ export class World {
     return squad;
   }
 
-  upgradeCost(squad: Squad): number | null {
-    return squad.tier >= 2 ? null : squad.def.tiers[squad.tier + 1].cost;
+  // ================================================================== upgrades
+
+  private techCheck(cost: number, tech: Tech | undefined): BuyCheck {
+    if (this.isOver) return { ok: false, cost, reason: 'Mission over' };
+    if ((tech ?? 1) > this.tech) return { ok: false, cost, reason: `Needs Tech ${tech} (build Reactors)` };
+    if (this.supplies < cost) return { ok: false, cost, reason: 'Not enough supplies' };
+    return { ok: true, cost, reason: '' };
   }
 
-  upgrade(squad: Squad): boolean {
-    const cost = this.upgradeCost(squad);
-    if (cost === null || this.supplies < cost || squad.removed || this.isOver) return false;
-    this.supplies -= cost;
-    squad.invested += cost;
-    const oldHp = squad.def.tiers[squad.tier].trooperHp;
-    squad.tier++;
-    const gain = squad.def.tiers[squad.tier].trooperHp - oldHp;
-    for (const t of squad.troopers) if (t.alive) t.hp += gain;
-    this.events.squadUpgraded?.(squad);
+  /** null when there is no further tier. */
+  checkUpgrade(p: Placeable): BuyCheck | null {
+    if (p.tier >= 2) return null;
+    const next = p.def.tiers[p.tier + 1];
+    return this.techCheck(next.cost, 'tech' in next ? next.tech : undefined);
+  }
+
+  upgrade(p: Placeable): boolean {
+    const c = this.checkUpgrade(p);
+    if (!c?.ok || p.removed) return false;
+    this.supplies -= c.cost;
+    p.invested += c.cost;
+    p.tier++;
+    if (p.kind === 'squad') {
+      this.refreshStats(p);
+      this.events.squadUpgraded?.(p);
+    } else {
+      this.events.buildingUpgraded?.(p);
+      this.checkTech();
+    }
     return true;
   }
 
-  sellValue(squad: Squad): number {
-    const full = Balance.fullRefundBeforeNextWave && squad.placedAtWave === this.wavesStarted;
-    return Math.floor(squad.invested * (full ? 1 : Balance.sellRefund));
+  checkSpecialize(s: Squad, spec: SpecDef): BuyCheck {
+    if (s.tier < 2) return { ok: false, cost: spec.cost, reason: 'Reach tier III first' };
+    if (s.spec) return { ok: false, cost: spec.cost, reason: 'Already specialized' };
+    return this.techCheck(spec.cost, spec.tech);
   }
 
-  sell(squad: Squad): number {
-    if (squad.removed || this.isOver) return 0;
-    const refund = this.sellValue(squad);
+  specialize(s: Squad, specId: string): boolean {
+    const spec = getSpec(specId);
+    if (!s.def.specs.includes(specId)) return false;
+    const c = this.checkSpecialize(s, spec);
+    if (!c.ok) return false;
+    this.supplies -= c.cost;
+    s.invested += c.cost;
+    s.spec = spec;
+    this.refreshStats(s);
+    this.events.squadSpecialized?.(s);
+    return true;
+  }
+
+  checkAbility(s: Squad, a: AbilityDef): BuyCheck {
+    if (s.abilities.includes(a.id)) return { ok: false, cost: a.cost, reason: 'Owned' };
+    return this.techCheck(a.cost, a.tech);
+  }
+
+  buyAbility(s: Squad, abilityId: string): boolean {
+    const a = s.spec?.abilities.find((q) => q.id === abilityId);
+    if (!a) return false;
+    const c = this.checkAbility(s, a);
+    if (!c.ok) return false;
+    this.supplies -= c.cost;
+    s.invested += c.cost;
+    s.abilities.push(a.id);
+    this.refreshStats(s);
+    this.events.abilityBought?.(s, a.name);
+    return true;
+  }
+
+  /** Recompute stats after tier/spec/ability/rank changes; tops up trooper HP by the gain. */
+  private refreshStats(s: Squad): void {
+    const oldHp = s.stats.hp;
+    s.stats = computeStats(s);
+    const gain = s.stats.hp - oldHp;
+    for (const t of s.troopers) if (t.alive) t.hp = Math.min(s.stats.hp, t.hp + Math.max(0, gain));
+    // Deploy or remove turrets to match.
+    while (s.turrets.length < s.stats.turretCount) s.turrets.push({ x: s.anchorX, y: s.anchorY, angle: s.facing, cooldown: 0.5 });
+    s.turrets.length = s.stats.turretCount;
+    this.layoutTurrets(s);
+  }
+
+  private checkTech(): void {
+    const t = this.tech;
+    if (t !== this.lastTech) {
+      this.lastTech = t;
+      this.events.techChanged?.(t);
+    }
+  }
+
+  sellValue(p: Placeable): number {
+    const full = Balance.fullRefundBeforeNextWave && p.placedAtWave === this.wavesStarted;
+    return Math.floor(p.invested * (full ? 1 : Balance.sellRefund));
+  }
+
+  sell(p: Placeable): number {
+    if (p.removed || this.isOver) return 0;
+    const refund = this.sellValue(p);
     this.supplies += refund;
-    squad.removed = true;
-    this.releaseEngaged(squad);
-    if (squad.cover) this.coverOccupant.delete(squad.cover.index);
-    this.squads.splice(this.squads.indexOf(squad), 1);
-    this.events.squadRemoved?.(squad, refund);
+    p.removed = true;
+    if (p.kind === 'squad') {
+      this.releaseEngaged(p);
+      if (p.cover) this.coverOccupant.delete(p.cover.index);
+      this.squads.splice(this.squads.indexOf(p), 1);
+      this.events.squadRemoved?.(p, refund);
+    } else {
+      this.buildings.splice(this.buildings.indexOf(p), 1);
+      this.events.buildingRemoved?.(p, refund);
+      this.checkTech();
+    }
     return refund;
   }
 
   rotate(squad: Squad, facing: number): void {
     squad.facing = Math.atan2(Math.sin(facing), Math.cos(facing));
+    this.layoutTurrets(squad);
   }
 
   /** Moves the rally point, clamped to the leash circle and to legal terrain. Returns the final point. */
@@ -295,14 +485,18 @@ export class World {
     return true;
   }
 
-  get isOver(): boolean {
-    return this.state === 'won' || this.state === 'lost';
+  /** Effective weapon range for a squad (stats + cover bonus). */
+  rangeOf(s: Squad): number {
+    let r = s.stats.range;
+    if (s.cover) {
+      r *= getCover(s.cover.type).rangeBonus;
+      if (s.stats.coverBonus) r *= s.stats.coverBonus.range;
+    }
+    return r;
   }
 
-  /** Effective weapon range for a squad (tier + cover bonus). */
-  rangeOf(squad: Squad): number {
-    const w = squad.def.tiers[squad.tier].weapon;
-    return w.range * (squad.cover ? getCover(squad.cover.type).rangeBonus : 1);
+  turretRange(s: Squad): number {
+    return (s.stats.turretWeapon?.range ?? 0) * s.stats.turretRange;
   }
 
   coverOccupiedBy(c: CoverPoint): Squad | undefined {
@@ -321,6 +515,7 @@ export class World {
     this.hash.clear();
     for (const e of this.enemies) this.hash.insert(e);
 
+    this.updateAuras(dt);
     for (const s of this.squads) this.updateSquad(s, dt);
     for (let i = this.enemies.length - 1; i >= 0; i--) this.updateEnemy(this.enemies[i], dt);
     for (let i = this.projectiles.length - 1; i >= 0; i--) this.updateShell(this.projectiles[i], i, dt);
@@ -331,6 +526,8 @@ export class World {
       if (!e.alive) {
         const last = this.enemies.pop()!;
         if (i < this.enemies.length) this.enemies[i] = last;
+        e.engaged = null;
+        e.burnSource = null;
         this.enemyPool.push(e);
       }
     }
@@ -340,11 +537,7 @@ export class World {
       this.integrity = 0;
       this.state = 'lost';
       this.events.gameOver?.(false);
-    } else if (
-      this.wavesStarted === this.totalWaves &&
-      this.waveSpawnDone.every(Boolean) &&
-      this.enemies.length === 0
-    ) {
+    } else if (this.wavesStarted === this.totalWaves && this.waveSpawnDone.every(Boolean) && this.enemies.length === 0) {
       this.state = 'won';
       this.events.gameOver?.(true);
     }
@@ -362,6 +555,16 @@ export class World {
       this.groups.push({ group: g, wave: index, path, spawned: 0, timer: g.delay });
     }
     if (wave.groups.length === 0) this.waveSpawnDone[index] = true;
+    // Supply Depots pay out at the start of every wave after the first.
+    if (index > 0) {
+      for (const b of this.buildings) {
+        const inc = b.def.tiers[b.tier].income ?? 0;
+        if (inc > 0) {
+          this.supplies += inc;
+          this.events.income?.(b, inc);
+        }
+      }
+    }
     this.events.waveStarted?.(index, earlyBonus);
   }
 
@@ -379,7 +582,6 @@ export class World {
         if (!this.groups.some((o) => o.wave === g.wave)) this.waveSpawnDone[g.wave] = true;
       }
     }
-    // Start the countdown to the next wave once the current wave has finished spawning.
     const cur = this.wavesStarted - 1;
     if (this.state === 'running' && this.countdown < 0 && cur >= 0 && this.waveSpawnDone[cur] && this.wavesStarted < this.totalWaves) {
       this.countdown = this.countdownTotal = Balance.waveCountdown;
@@ -423,6 +625,9 @@ export class World {
     e.engaged = null;
     e.berserk = false;
     e.wave = wave;
+    e.slowT = e.slowMult = e.stunT = e.markT = e.markMult = e.markBounty = 0;
+    e.suppressT = e.suppressMult = e.burnT = e.burnDps = 0;
+    e.burnSource = null;
     this.enemies.push(e);
     this.waveAlive[wave]++;
     this.events.enemySpawned?.(e);
@@ -453,6 +658,20 @@ export class World {
     }
   }
 
+  /** Turrets sit in a row in front of the squad's anchor. */
+  private layoutTurrets(s: Squad): void {
+    const n = s.turrets.length;
+    const c = Math.cos(s.facing), sn = Math.sin(s.facing);
+    for (let i = 0; i < n; i++) {
+      const lateral = (i - (n - 1) / 2) * Balance.turretSpacing + (n % 2 === 1 ? 0 : 0);
+      const fwd = n % 2 === 1 && i === (n - 1) / 2 ? 30 : 16;
+      const t = s.turrets[i];
+      t.x = s.anchorX + fwd * c - lateral * sn;
+      t.y = s.anchorY + fwd * sn + lateral * c;
+      if (!isFinite(t.angle)) t.angle = s.facing;
+    }
+  }
+
   private updateCover(squad: Squad): void {
     const current = squad.cover;
     if (current && Math.hypot(current.x - squad.x, current.y - squad.y) <= getCover(current.type).radius) return;
@@ -470,27 +689,62 @@ export class World {
     }
   }
 
+  /** Support auras (medics/engineers): heal, fire-rate and reinforce buffs. */
+  private updateAuras(dt: number): void {
+    for (const s of this.squads) {
+      s.auraRof = 1;
+      s.auraReinforce = 1;
+    }
+    for (const src of this.squads) {
+      const a = src.stats.aura;
+      if (src.down) continue;
+      if (src.stats.revive) {
+        src.reviveCd -= dt;
+        if (src.reviveCd <= 0) {
+          for (const q of this.squads) {
+            if (q.down && Math.hypot(q.x - src.x, q.y - src.y) <= src.stats.revive.radius) {
+              this.restoreSquad(q, true);
+              src.reviveCd = src.stats.revive.cooldown;
+              break;
+            }
+          }
+        }
+      }
+      if (!a) continue;
+      for (const q of this.squads) {
+        if (q.down || Math.hypot(q.x - src.x, q.y - src.y) > a.radius) continue;
+        if (a.heal > 0) for (const t of q.troopers) if (t.alive) t.hp = Math.min(q.stats.hp, t.hp + a.heal * dt);
+        q.auraRof = Math.max(q.auraRof, a.rof);
+        q.auraReinforce = Math.max(q.auraReinforce, a.reinforce);
+      }
+    }
+  }
+
+  private restoreSquad(s: Squad, revived: boolean): void {
+    s.down = false;
+    s.sinceHit = 99;
+    for (const t of s.troopers) {
+      t.alive = true;
+      t.hp = s.stats.hp;
+    }
+    s.x = s.rallyX;
+    s.y = s.rallyY;
+    this.layoutTroopers(s, true);
+    this.updateCover(s);
+    this.events.squadRestored?.(s, revived);
+  }
+
   private updateSquad(s: Squad, dt: number): void {
     for (const t of s.troopers) {
       t.prevX = t.x;
       t.prevY = t.y;
     }
+    // Turrets keep shooting even while the crew is down.
+    if (s.turrets.length) this.updateTurrets(s, dt);
+
     if (s.down) {
       s.downTimer -= dt;
-      if (s.downTimer <= 0) {
-        s.down = false;
-        s.sinceHit = 99;
-        const hp = s.def.tiers[s.tier].trooperHp;
-        for (const t of s.troopers) {
-          t.alive = true;
-          t.hp = hp;
-        }
-        s.x = s.rallyX;
-        s.y = s.rallyY;
-        this.layoutTroopers(s, true);
-        this.updateCover(s);
-        this.events.squadRestored?.(s);
-      }
+      if (s.downTimer <= 0) this.restoreSquad(s, false);
       return;
     }
 
@@ -523,15 +777,15 @@ export class World {
 
     // Healing and reinforcements while out of combat.
     s.sinceHit += dt;
-    if (s.sinceHit >= Balance.reinforceDelay) {
-      const maxHp = s.def.tiers[s.tier].trooperHp;
+    if (s.sinceHit >= Balance.reinforceDelay / s.auraReinforce) {
+      const maxHp = s.stats.hp;
       let missing: Trooper | null = null;
       for (const t of s.troopers) {
         if (t.alive) t.hp = Math.min(maxHp, t.hp + maxHp * 0.15 * dt);
         else if (!missing) missing = t;
       }
       if (missing) {
-        s.reinforceTimer += dt;
+        s.reinforceTimer += dt * s.auraReinforce;
         if (s.reinforceTimer >= Balance.reinforceTime) {
           s.reinforceTimer = 0;
           missing.alive = true;
@@ -543,10 +797,9 @@ export class World {
       }
     }
 
-    // Targeting.
-    const weapon = s.def.tiers[s.tier].weapon;
+    const st = s.stats;
     const range = this.rangeOf(s);
-    s.target = this.pickTarget(s, range);
+    s.target = this.pickTarget(s, range, st.arcDeg);
 
     // Aim.
     for (const t of s.troopers) {
@@ -557,64 +810,189 @@ export class World {
       t.angle += Math.abs(diff) <= maxTurn ? diff : Math.sign(diff) * maxTurn;
     }
 
+    // Spin-up builds while firing, decays otherwise.
+    if (st.spinUp) s.spin = Math.max(0, Math.min(1, s.spin + (s.target ? dt / st.spinUp.seconds : -dt)));
+
+    const lead = this.leadTrooper(s);
+    // Secondary weapons.
+    if (st.flame && lead) {
+      s.flameCd -= dt;
+      if (s.flameCd <= 0 && s.target && Math.hypot(s.target.x - s.x, s.target.y - s.y) <= st.flame.range + s.target.def.radius) {
+        s.flameCd = st.flame.interval;
+        this.fireFlame(s, lead, Math.atan2(s.target.y - lead.y, s.target.x - lead.x));
+      }
+    }
+    if (st.grenade && lead) {
+      s.grenadeCd -= dt;
+      if (s.grenadeCd <= 0 && s.target) {
+        s.grenadeCd = st.grenade.interval;
+        this.fireShell(s, lead, s.target, st.grenade.damage, st.grenade.radius, 300, 'shell', st.grenade.stun, false);
+      }
+    }
+
     if (!s.target) return;
     const target = s.target;
+    let rof = st.rof * s.auraRof * (st.spinUp ? 1 + st.spinUp.maxBonus * s.spin : 1);
+    if (s.cover && st.coverBonus) rof *= st.coverBonus.rof;
 
     if (s.def.crewServed) {
       s.crewCooldown -= dt;
-      if (s.crewCooldown > 0) return;
+      if (s.crewCooldown > 0 || !lead) return;
       let alive = 0;
-      let gunner: Trooper | null = null;
-      for (const t of s.troopers) if (t.alive) {
-        alive++;
-        gunner ??= t;
+      for (const t of s.troopers) if (t.alive) alive++;
+      if (Math.abs(angleDiff(Math.atan2(target.y - lead.y, target.x - lead.x), lead.angle)) > 0.3) return;
+      s.crewCooldown = 1 / (rof * Math.pow(alive / s.troopers.length, Balance.crewPenaltyExponent));
+      if (st.projectile) {
+        const targets = st.multishot ? this.pickTargets(s, range, st.arcDeg, st.multishot.count) : null;
+        if (targets && targets.length > 1) {
+          for (const e of targets) this.fireShell(s, lead, e, st.damage * st.multishot!.dmgMult, st.splash, st.projectileSpeed, st.projectile, 0, true);
+        } else {
+          this.fireShell(s, lead, target, st.damage, st.splash, st.projectileSpeed, st.projectile, 0, true);
+        }
+      } else {
+        this.fireBullet(s, lead, target, st);
       }
-      if (!gunner) return;
-      if (Math.abs(angleDiff(Math.atan2(target.y - gunner.y, target.x - gunner.x), gunner.angle)) > 0.25) return;
-      const crewFactor = Math.pow(alive / s.troopers.length, Balance.crewPenaltyExponent);
-      s.crewCooldown = 1 / (weapon.rof * crewFactor);
-      this.fireShell(s, gunner, target);
     } else {
       for (const t of s.troopers) {
         if (!t.alive) continue;
         t.cooldown -= dt;
         if (t.cooldown > 0) continue;
         if (Math.abs(angleDiff(Math.atan2(target.y - t.y, target.x - t.x), t.angle)) > 0.3) continue;
-        t.cooldown = (1 / weapon.rof) * this.rng.range(0.85, 1.15);
-        const hit = this.rng.chance(weapon.accuracy);
-        let tx = target.x, ty = target.y;
-        if (!hit) {
-          tx += this.rng.range(-22, 22);
-          ty += this.rng.range(-22, 22);
-        }
-        this.events.shot?.(s, t, tx, ty, hit);
-        if (hit) this.damageEnemy(target, weapon.damage, weapon.damageType, s);
+        t.cooldown = (1 / rof) * this.rng.range(0.85, 1.15);
+        this.fireBullet(s, t, target, st);
         if (!target.alive) break;
       }
     }
   }
 
-  private pickTarget(s: Squad, range: number): Enemy | null {
-    const half = (s.def.arcDeg * Math.PI) / 360;
+  private leadTrooper(s: Squad): Trooper | null {
+    for (const t of s.troopers) if (t.alive) return t;
+    return null;
+  }
+
+  private fireBullet(s: Squad, t: Trooper, target: Enemy, st: SquadStats): void {
+    const hit = this.rng.chance(st.accuracy);
+    let tx = target.x, ty = target.y;
+    if (!hit) {
+      tx += this.rng.range(-22, 22);
+      ty += this.rng.range(-22, 22);
+    }
+    let dmg = st.damage;
+    if (st.firstShot > 1 && s.lastTargetId !== target.id) dmg *= st.firstShot;
+    s.lastTargetId = target.id;
+    this.events.shot?.(s, t, tx, ty, hit);
+    if (!hit) return;
+    this.damageEnemy(target, dmg, st.damageType, s, st);
+    if (st.pierceTargets) this.pierceThrough(s, t, target, dmg * st.pierceTargets.dmgMult, st.pierceTargets.count, st);
+  }
+
+  /** Overpenetration: hit up to `count` enemies roughly in line behind the target. */
+  private pierceThrough(s: Squad, from: Trooper, target: Enemy, dmg: number, count: number, st: SquadStats): void {
+    const dx = target.x - from.x, dy = target.y - from.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const reach = this.rangeOf(s) * 1.15;
+    const near = this.hash.query(target.x + ux * reach * 0.3, target.y + uy * reach * 0.3, reach * 0.6, this.near);
+    let hits = 0;
+    // Sort candidates by distance along the ray (small list; insertion into picks).
+    this.picks.length = 0;
+    for (const e of near) {
+      if (!e.alive || e === target) continue;
+      const px = e.x - from.x, py = e.y - from.y;
+      const along = px * ux + py * uy;
+      if (along <= len || along > reach) continue;
+      const side = Math.abs(px * uy - py * ux);
+      if (side > e.def.radius + 8) continue;
+      this.picks.push(e);
+    }
+    this.picks.sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y));
+    for (const e of this.picks) {
+      if (hits >= count) break;
+      this.damageEnemy(e, dmg, st.damageType, s, st);
+      hits++;
+    }
+    if (hits > 0) {
+      const last = this.picks[Math.min(hits, this.picks.length) - 1];
+      this.events.shot?.(s, from, last.x, last.y, true);
+    }
+  }
+
+  private fireFlame(s: Squad, t: Trooper, angle: number): void {
+    const f = s.stats.flame!;
+    const half = (f.arcDeg * Math.PI) / 360;
+    this.events.flame?.(s, t, angle, f.range, f.arcDeg);
+    const near = this.hash.query(t.x, t.y, f.range + 20, this.near);
+    for (const e of near) {
+      if (!e.alive) continue;
+      const dx = e.x - t.x, dy = e.y - t.y;
+      if (Math.hypot(dx, dy) > f.range + e.def.radius) continue;
+      if (Math.abs(angleDiff(Math.atan2(dy, dx), angle)) > half) continue;
+      this.damageEnemy(e, f.damage, 'fire', s, null);
+      if (e.alive) {
+        e.burnT = Math.max(e.burnT, f.burnTime);
+        e.burnDps = Math.max(e.burnDps, f.burnDps);
+        e.burnSource = s;
+      }
+    }
+  }
+
+  private updateTurrets(s: Squad, dt: number): void {
+    const w = s.stats.turretWeapon;
+    if (!w) return;
+    const range = this.turretRange(s);
+    for (const tu of s.turrets) {
+      tu.cooldown -= dt;
+      // Closest-to-exit enemy in range, 360°.
+      let best: Enemy | null = null;
+      const near = this.hash.query(tu.x, tu.y, range + 20, this.near);
+      for (const e of near) {
+        if (!e.alive) continue;
+        if (Math.hypot(e.x - tu.x, e.y - tu.y) > range + e.def.radius) continue;
+        if (!best || e.dist > best.dist) best = e;
+      }
+      if (!best) continue;
+      const want = Math.atan2(best.y - tu.y, best.x - tu.x);
+      const diff = angleDiff(want, tu.angle);
+      tu.angle += Math.abs(diff) <= 9 * dt ? diff : Math.sign(diff) * 9 * dt;
+      if (tu.cooldown > 0 || Math.abs(diff) > 0.3) continue;
+      tu.cooldown = 1 / w.rof;
+      this.events.turretShot?.(s, tu, best.x, best.y);
+      this.damageEnemy(best, w.damage * s.stats.turretDamage, w.damageType, s, null);
+    }
+  }
+
+  private targetScore(s: Squad, e: Enemy, dSq: number): number {
+    let score: number;
+    switch (s.targetMode) {
+      case 'first': score = e.dist; break;
+      case 'strongest': score = e.hp + e.shield; break;
+      case 'weakest': score = -(e.hp + e.shield); break;
+      case 'closest': score = -dSq; break;
+    }
+    // Melee enemies already fighting this squad get priority (self-defense).
+    if (e.engaged === s) score += 1e6;
+    return score;
+  }
+
+  private inArc(s: Squad, e: Enemy, range: number, half: number): number {
+    if (!e.alive) return -1;
+    const dx = e.x - s.x, dy = e.y - s.y;
+    const dSq = dx * dx + dy * dy;
+    const reach = range + e.def.radius;
+    if (dSq > reach * reach) return -1;
+    if (half < Math.PI && Math.abs(angleDiff(Math.atan2(dy, dx), s.facing)) > half) return -1;
+    return dSq;
+  }
+
+  private pickTarget(s: Squad, range: number, arcDeg: number): Enemy | null {
+    const half = (arcDeg * Math.PI) / 360;
     const candidates = this.hash.query(s.x, s.y, range + 20, this.near);
     let best: Enemy | null = null;
     let bestScore = -Infinity;
     for (const e of candidates) {
-      if (!e.alive) continue;
-      const dx = e.x - s.x, dy = e.y - s.y;
-      const dSq = dx * dx + dy * dy;
-      const reach = range + e.def.radius;
-      if (dSq > reach * reach) continue;
-      if (Math.abs(angleDiff(Math.atan2(dy, dx), s.facing)) > half) continue;
-      let score: number;
-      switch (s.targetMode) {
-        case 'first': score = e.dist; break;
-        case 'strongest': score = e.hp + e.shield; break;
-        case 'weakest': score = -(e.hp + e.shield); break;
-        case 'closest': score = -dSq; break;
-      }
-      // Melee enemies already fighting this squad get priority (self-defense).
-      if (e.engaged === s) score += 1e6;
+      const dSq = this.inArc(s, e, range, half);
+      if (dSq < 0) continue;
+      const score = this.targetScore(s, e, dSq);
       if (score > bestScore) {
         bestScore = score;
         best = e;
@@ -623,32 +1001,44 @@ export class World {
     return best;
   }
 
-  private fireShell(s: Squad, gunner: Trooper, target: Enemy): void {
-    const w = s.def.tiers[s.tier].weapon;
+  private pickTargets(s: Squad, range: number, arcDeg: number, count: number): Enemy[] {
+    const half = (arcDeg * Math.PI) / 360;
+    const candidates = this.hash.query(s.x, s.y, range + 20, this.near);
+    const picks = this.picks;
+    picks.length = 0;
+    for (const e of candidates) if (this.inArc(s, e, range, half) >= 0) picks.push(e);
+    picks.sort((a, b) => this.targetScore(s, b, (b.x - s.x) ** 2 + (b.y - s.y) ** 2) - this.targetScore(s, a, (a.x - s.x) ** 2 + (a.y - s.y) ** 2));
+    if (picks.length > count) picks.length = count;
+    return picks;
+  }
+
+  private fireShell(s: Squad, gunner: Trooper, target: Enemy, damage: number, radius: number, speed: number, kind: 'shell' | 'rocket', stun: number, useOwnerStats: boolean): void {
     const p: Projectile = this.shellPool.pop() ?? ({} as Projectile);
-    const speed = w.projectileSpeed ?? 300;
     const muzzleX = gunner.x + Math.cos(gunner.angle) * 12;
     const muzzleY = gunner.y + Math.sin(gunner.angle) * 12;
     // Lead the target: aim where it will be when the shell lands.
     let flight = Math.hypot(target.x - muzzleX, target.y - muzzleY) / speed;
     let tx = target.x, ty = target.y;
-    if (!target.engaged) {
-      const spd = target.def.speed * (target.berserk ? Balance.berserkSpeed : 1);
+    if (!target.engaged && target.stunT <= 0) {
+      const spd = this.enemySpeed(target);
       tx += Math.cos(target.heading) * spd * flight;
       ty += Math.sin(target.heading) * spd * flight;
       flight = Math.hypot(tx - muzzleX, ty - muzzleY) / speed;
     }
     p.active = true;
     p.owner = s;
+    p.kind = kind;
     p.x0 = p.x = p.prevX = muzzleX;
     p.y0 = p.y = p.prevY = muzzleY;
     p.tx = tx;
     p.ty = ty;
     p.t = 0;
-    p.dur = Math.max(0.12, flight);
-    p.damage = w.damage;
-    p.radius = w.splashRadius ?? 30;
-    p.damageType = w.damageType;
+    p.dur = Math.max(0.1, flight);
+    p.damage = damage;
+    p.radius = radius;
+    p.damageType = useOwnerStats ? s.stats.damageType : 'explosive';
+    p.stun = stun;
+    p.useOwnerStats = useOwnerStats;
     this.projectiles.push(p);
     this.events.shellFired?.(s, gunner, p);
   }
@@ -662,15 +1052,18 @@ export class World {
     p.y = p.y0 + (p.ty - p.y0) * k;
     if (k < 1) return;
     // Detonate.
+    const owner = p.owner && !p.owner.removed ? p.owner : null;
+    const st = p.useOwnerStats && owner ? owner.stats : null;
     const near = this.hash.query(p.tx, p.ty, p.radius + 20, this.near);
     for (const e of near) {
       if (!e.alive) continue;
       const d = Math.hypot(e.x - p.tx, e.y - p.ty) - e.def.radius * 0.5;
       if (d > p.radius) continue;
       const falloff = 1 - (1 - Balance.splashEdgeFactor) * Math.max(0, d / p.radius);
-      this.damageEnemy(e, p.damage * falloff, p.damageType, p.owner);
+      this.damageEnemy(e, p.damage * falloff, p.damageType, owner, st);
+      if (p.stun > 0 && e.alive) e.stunT = Math.max(e.stunT, p.stun);
     }
-    this.events.explosion?.(p.tx, p.ty, p.radius);
+    this.events.explosion?.(p.tx, p.ty, p.radius, p.kind);
     p.active = false;
     p.owner = null;
     const last = this.projectiles.pop()!;
@@ -680,9 +1073,8 @@ export class World {
 
   private damageSquad(s: Squad, amount: number): Trooper | null {
     if (s.down || s.removed) return null;
-    const reduction = s.cover ? getCover(s.cover.type).damageReduction : 0;
-    const dmg = amount * (1 - reduction);
-    // Hit a random living trooper.
+    const cover = s.cover ? getCover(s.cover.type).damageReduction : 0;
+    const dmg = amount * (1 - cover) * (1 - s.stats.armor);
     let count = 0;
     for (const t of s.troopers) if (t.alive) count++;
     if (count === 0) return null;
@@ -713,17 +1105,31 @@ export class World {
     s.engagedBy = 0;
   }
 
+  private awardXp(s: Squad, xp: number): void {
+    s.xp += xp;
+    const t = Balance.veterancyXp;
+    const rank = s.xp >= t[2] ? 3 : s.xp >= t[1] ? 2 : s.xp >= t[0] ? 1 : 0;
+    if (rank > s.rank) {
+      s.rank = rank;
+      this.refreshStats(s);
+      this.events.squadPromoted?.(s);
+    }
+  }
+
   // ---------------------------------------------------------------- enemies
 
-  private damageEnemy(e: Enemy, amount: number, type: keyof typeof Balance.pierce, source: Squad | null): void {
+  private damageEnemy(e: Enemy, amount: number, type: DamageType, source: Squad | null, st: SquadStats | null): void {
     if (!e.alive) return;
-    let remaining = amount;
+    let dmg = amount;
+    if (st && st.armoredMult !== 1 && e.def.armor >= 0.3) dmg *= st.armoredMult;
+    if (e.markT > 0) dmg *= 1 + e.markMult;
+    let remaining = dmg;
     let shieldHit = false;
     e.shieldTimer = 0;
     if (e.shield > 0) {
       shieldHit = true;
-      const mult = Balance.shieldMultiplier[type];
-      const shieldDmg = amount * mult;
+      const mult = Balance.shieldMultiplier[type] * (st?.shieldMult ?? 1);
+      const shieldDmg = dmg * mult;
       if (shieldDmg >= e.shield) {
         remaining = (shieldDmg - e.shield) / mult;
         e.shield = 0;
@@ -733,9 +1139,11 @@ export class World {
         remaining = 0;
       }
     }
-    const dealt = remaining * (1 - e.def.armor * (1 - Balance.pierce[type]));
+    const pierce = Math.min(1, Balance.pierce[type] + (st?.pierceBonus ?? 0));
+    const dealt = remaining * (1 - e.def.armor * (1 - pierce));
     e.hp -= dealt;
-    this.events.enemyDamaged?.(e, shieldHit ? amount : dealt, shieldHit && remaining === 0);
+    this.events.enemyDamaged?.(e, shieldHit ? dmg : dealt, shieldHit && remaining === 0);
+
     if (e.hp <= 0) {
       e.alive = false;
       this.waveAlive[e.wave]--;
@@ -743,13 +1151,50 @@ export class World {
         e.engaged.engagedBy = Math.max(0, e.engaged.engagedBy - 1);
         e.engaged = null;
       }
-      this.supplies += e.def.bounty;
-      if (source && !source.removed) source.kills++;
-      this.events.enemyKilled?.(e, e.def.bounty);
-    } else if (!e.berserk && e.def.berserkAt > 0 && e.hp / e.maxHp < e.def.berserkAt) {
+      const bounty = Math.round(e.def.bounty * (1 + (e.markT > 0 ? e.markBounty : 0)));
+      this.supplies += bounty;
+      if (source && !source.removed) {
+        source.kills++;
+        this.awardXp(source, e.def.bounty);
+      }
+      this.events.enemyKilled?.(e, bounty);
+      return;
+    }
+    if (!e.berserk && e.def.berserkAt > 0 && e.hp / e.maxHp < e.def.berserkAt) {
       e.berserk = true;
       this.events.enemyBerserk?.(e);
     }
+    if (st) {
+      for (const o of st.onHit) {
+        switch (o.status) {
+          case 'slow':
+            e.slowMult = e.slowT > 0 ? Math.max(e.slowMult, o.strength) : o.strength;
+            e.slowT = Math.max(e.slowT, o.duration);
+            break;
+          case 'mark':
+            e.markMult = e.markT > 0 ? Math.max(e.markMult, o.strength) : o.strength;
+            e.markT = Math.max(e.markT, o.duration);
+            e.markBounty = Math.max(e.markBounty, st.markBounty);
+            break;
+          case 'stun':
+            e.stunT = Math.max(e.stunT, o.duration);
+            break;
+          case 'suppress':
+            e.suppressMult = e.suppressT > 0 ? Math.max(e.suppressMult, o.strength) : o.strength;
+            e.suppressT = Math.max(e.suppressT, o.duration);
+            break;
+          case 'burn':
+            e.burnDps = Math.max(e.burnDps, o.strength);
+            e.burnT = Math.max(e.burnT, o.duration);
+            e.burnSource = source;
+            break;
+        }
+      }
+    }
+  }
+
+  private enemySpeed(e: Enemy): number {
+    return e.def.speed * (e.berserk ? Balance.berserkSpeed : 1) * (e.slowT > 0 ? 1 - e.slowMult : 1);
   }
 
   private updateEnemy(e: Enemy, dt: number): void {
@@ -758,16 +1203,30 @@ export class World {
     e.prevY = e.y;
     const def = e.def;
 
+    // Status timers.
+    if (e.slowT > 0) e.slowT -= dt;
+    if (e.markT > 0) e.markT -= dt;
+    if (e.suppressT > 0) e.suppressT -= dt;
+    if (e.burnT > 0) {
+      e.burnT -= dt;
+      this.damageEnemy(e, e.burnDps * dt, 'fire', e.burnSource && !e.burnSource.removed ? e.burnSource : null, null);
+      if (!e.alive) return;
+    }
+
     if (def.shield > 0 && e.shield < def.shield) {
       e.shieldTimer += dt;
       if (e.shieldTimer >= def.shieldDelay) e.shield = Math.min(def.shield, e.shield + def.shieldRegen * dt);
     }
 
+    if (e.stunT > 0) {
+      e.stunT -= dt;
+      return; // stunned: no moving, no attacking
+    }
+
     const dmgMult = e.berserk ? Balance.berserkDamage : 1;
-    e.attackCd -= dt;
+    e.attackCd -= dt * (e.suppressT > 0 ? 1 - e.suppressMult : 1);
 
     if (def.attack.kind === 'melee') {
-      // Drop the fight if the squad left, went down or was sold.
       const s = e.engaged;
       if (s && (s.down || s.removed || Math.hypot(s.x - e.x, s.y - e.y) > def.attack.range + 30)) {
         s.engagedBy = Math.max(0, s.engagedBy - 1);
@@ -775,7 +1234,7 @@ export class World {
       }
       if (!e.engaged) {
         for (const q of this.squads) {
-          if (q.down || q.engagedBy >= q.def.blockCap) continue;
+          if (q.down || q.engagedBy >= q.stats.blockCap) continue;
           if (Math.hypot(q.x - e.x, q.y - e.y) <= def.attack.range + q.def.footprint * 0.5) {
             e.engaged = q;
             q.engagedBy++;
@@ -814,7 +1273,7 @@ export class World {
     }
 
     // Walk the path.
-    e.dist += def.speed * (e.berserk ? Balance.berserkSpeed : 1) * dt;
+    e.dist += this.enemySpeed(e) * dt;
     if (e.dist >= e.path.length) {
       e.alive = false;
       this.waveAlive[e.wave]--;
@@ -823,14 +1282,11 @@ export class World {
       return;
     }
     e.heading = e.path.sample(e.dist, this.tmp);
-    // Lane offset perpendicular to the heading, eased in over the first few steps.
     const lane = e.lane * Math.min(1, e.dist / 40);
     e.x = this.tmp.x - Math.sin(e.heading) * lane;
     e.y = this.tmp.y + Math.cos(e.heading) * lane;
   }
-
-  /** Every unit definition the player can build in this mission. */
-  get buildable(): UnitDef[] {
-    return this.mission.units.map(getUnit);
-  }
 }
+
+/** Turret type re-export for the renderer. */
+export type { Turret };

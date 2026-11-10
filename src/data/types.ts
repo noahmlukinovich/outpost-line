@@ -1,7 +1,7 @@
 /**
  * Types for all game data. These describe the SHAPE of the balance files; the numbers live in
- * units.ts, enemies.ts, cover.ts, balance.ts and waves/*.ts. If you mistype a field name there,
- * the build will fail and point at the line.
+ * units.ts, specs.ts, buildings.ts, enemies.ts, cover.ts, balance.ts and waves/*.ts.
+ * If you mistype a field name there, the build fails and points at the line.
  */
 
 export type DamageType = 'ballistic' | 'explosive' | 'ap' | 'fire' | 'energy';
@@ -9,30 +9,111 @@ export type DamageType = 'ballistic' | 'explosive' | 'ap' | 'fire' | 'energy';
 /** How a squad picks among valid targets. */
 export type TargetMode = 'first' | 'strongest' | 'weakest' | 'closest';
 
+/** Tech level 1–3, unlocked by total Power from Reactors (see Balance.techPower). */
+export type Tech = 1 | 2 | 3;
+
 export interface WeaponDef {
   /** Damage per shot (before armor/shields). */
   damage: number;
-  /** Shots per second, per firing trooper (or per weapon if `crewServed`). */
+  /** Shots per second, per firing trooper (or per weapon if the unit is `crewServed`). */
   rof: number;
-  /** Range in world units (1 unit ≈ 1 screen point at 100% zoom). */
+  /** Range in world units (the map is 1440 × 900). */
   range: number;
   damageType: DamageType;
-  /** 0–1. Chance a shot hits. Misses still draw a tracer. */
+  /** 0–1. Chance a bullet hits. Misses still draw a tracer. */
   accuracy: number;
-  /** If set, the shot is a lobbed shell that explodes in this radius instead of an instant bullet. */
+  /** If set, the weapon fires a projectile that explodes in this radius instead of an instant bullet. */
   splashRadius?: number;
-  /** Shell flight speed (units/sec). Only used with splashRadius. */
+  /** Projectile speed (units/sec). Only used with splashRadius. */
   projectileSpeed?: number;
+  /** How the projectile looks/flies: lobbed grenade shell (default) or straight rocket. */
+  projectile?: 'shell' | 'rocket';
 }
 
+/**
+ * Effects are the building blocks of specializations and abilities. Each is a small rule the
+ * simulation knows how to apply. Combine them freely in specs.ts.
+ */
+export type Effect =
+  /** Multiply (or add to) a squad stat. */
+  | { kind: 'stat'; stat: StatName; mult?: number; add?: number }
+  /** Applied to every enemy this squad hits. */
+  | { kind: 'onHit'; status: 'slow' | 'mark' | 'stun' | 'suppress' | 'burn'; strength: number; duration: number }
+  /** Extra damage multiplier against shields. */
+  | { kind: 'shieldMult'; mult: number }
+  /** Extra damage multiplier against enemies with armor ≥ 0.3. */
+  | { kind: 'armoredMult'; mult: number }
+  /** Bullets continue through the target and hit up to `count` more enemies behind it (×dmgMult). */
+  | { kind: 'pierceTargets'; count: number; dmgMult: number }
+  /** Each volley fires at up to `count` different targets (×dmgMult each). */
+  | { kind: 'multishot'; count: number; dmgMult: number }
+  /** First shot at a new target deals ×mult. */
+  | { kind: 'firstShot'; mult: number }
+  /** Fire rate ramps up to +maxBonus (e.g. 1 = double) after `seconds` of continuous fire. */
+  | { kind: 'spinUp'; maxBonus: number; seconds: number }
+  /** While in cover: range and fire-rate multipliers. */
+  | { kind: 'coverBonus'; range: number; rof: number }
+  /** Extra damage reduction for the squad itself (stacks with cover). */
+  | { kind: 'armor'; reduction: number }
+  /** Flamethrower burst every `interval` s at enemies within `range` in a cone. */
+  | { kind: 'flame'; interval: number; range: number; arcDeg: number; damage: number; burnDps: number; burnTime: number }
+  /** Thrown grenade every `interval` s: splash damage that stuns. */
+  | { kind: 'grenade'; interval: number; damage: number; radius: number; stun: number }
+  /** Support aura for friendly squads within `radius`. */
+  | { kind: 'aura'; radius: number; heal?: number; rof?: number; reinforce?: number }
+  /** Instantly revive a Down squad within `radius`, then wait `cooldown` s. */
+  | { kind: 'revive'; radius: number; cooldown: number }
+  /** Deploy auto-turrets next to the squad. Multiple turret effects add up. */
+  | { kind: 'turrets'; count: number; weapon?: WeaponDef }
+  /** Multiplies turret damage / range. */
+  | { kind: 'turretStat'; damage?: number; range?: number }
+  /** Kills of enemies this squad marked pay extra bounty (0.5 = +50%). */
+  | { kind: 'markBounty'; bonus: number }
+  /** Can shoot flying enemies (fliers arrive in M3). */
+  | { kind: 'antiAir' }
+  /** Reveals cloaked enemies within `radius` (cloaked enemies arrive in M3). */
+  | { kind: 'detect'; radius: number };
+
+export type StatName = 'damage' | 'rof' | 'range' | 'accuracy' | 'splash' | 'hp' | 'blockCap' | 'pierce';
+
 export interface TierDef {
-  /** Supplies to buy this tier (tier I = placement cost). */
+  /** Supplies to buy this tier (tier I = placement price). */
   cost: number;
   weapon: WeaponDef;
   /** Hit points per trooper. */
   trooperHp: number;
   /** Short text shown in the upgrade panel. */
   blurb: string;
+  /** Tech level needed to buy this tier. */
+  tech?: Tech;
+}
+
+export interface AbilityDef {
+  id: string;
+  name: string;
+  desc: string;
+  cost: number;
+  tech: Tech;
+  effects: Effect[];
+}
+
+export interface SpecDef {
+  id: string;
+  name: string;
+  blurb: string;
+  cost: number;
+  tech: Tech;
+  /** Replaces the tier III weapon. */
+  weapon: WeaponDef;
+  trooperHp?: number;
+  arcDeg?: number;
+  blockCap?: number;
+  art?: string;
+  leadArt?: string;
+  /** Always-on effects of the specialization itself. */
+  effects?: Effect[];
+  /** 2–3 purchasable abilities. */
+  abilities: AbilityDef[];
 }
 
 export interface UnitDef {
@@ -40,25 +121,44 @@ export interface UnitDef {
   name: string;
   /** Short role text for the build menu. */
   role: string;
-  /** Number of troopers in the squad. */
   troopers: number;
-  /** One weapon shared by the whole crew (heavy weapons) vs. one per trooper (rifles). */
+  /** One weapon shared by the whole crew (heavy weapons, snipers) vs. one per trooper (rifles). */
   crewServed: boolean;
   /** Firing arc width, in degrees. */
   arcDeg: number;
-  /** Placement footprint radius (no two squads may overlap). */
+  /** Placement footprint radius (nothing may overlap it). */
   footprint: number;
   /** How far the rally point may be dragged from where the squad was placed. */
   leash: number;
-  /** Max number of melee enemies this squad can hold back at once. */
+  /** Max number of melee enemies this squad can hold back at once (0 = never engaged). */
   blockCap: number;
-  /** Command Cap used (Command Cap arrives in M2). */
+  /** Command Cap used. */
   cap: number;
-  /** Art ID of the trooper sprite (see public/assets/manifest.json). */
   art: string;
-  /** Optional different art for trooper #1 (e.g. the heavy gunner). */
   leadArt?: string;
   tiers: [TierDef, TierDef, TierDef];
+  /** The two specializations available after tier III. */
+  specs: [string, string];
+  /** Always-on effects of the base unit (e.g. engineers' small heal aura). */
+  effects?: Effect[];
+}
+
+export interface BuildingTier {
+  cost: number;
+  /** Total power this building provides at this tier (Reactors). */
+  power?: number;
+  /** Supplies paid at the start of every wave (Supply Depots). */
+  income?: number;
+  blurb: string;
+}
+
+export interface BuildingDef {
+  id: string;
+  name: string;
+  role: string;
+  footprint: number;
+  art: string;
+  tiers: [BuildingTier, BuildingTier, BuildingTier];
 }
 
 export interface EnemyDef {
@@ -135,6 +235,10 @@ export interface MissionDef {
   waves: WaveDef[];
   startingSupplies: number;
   integrity: number;
+  /** Max Command Cap used by squads. */
+  commandCap: number;
   /** Unit ids the player may build in this mission. */
   units: string[];
+  /** Building ids the player may build in this mission. */
+  buildings: string[];
 }
