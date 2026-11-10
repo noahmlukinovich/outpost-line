@@ -3,7 +3,7 @@
 > Working title. A top-down military sci-fi tower defense game for iPad (installable PWA).
 > All factions, units, names and art are original.
 >
-> Status: **v0.4. M0–M2 built.** (M2 also: fill-screen camera, edge-scrolling, new marine art.) Items marked **[Q#]** are open questions (listed at the end).
+> Status: **v0.5. M0–M2 built, plus an effects pass and Endless mode (pulled forward from M5).** Items marked **[Q#]** are open questions (listed at the end).
 > Items marked *(proposal)* fill gaps in the brief and can be changed.
 
 ---

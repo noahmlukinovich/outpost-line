@@ -241,4 +241,6 @@ export interface MissionDef {
   units: string[];
   /** Building ids the player may build in this mission. */
   buildings: string[];
+  /** Endless survival: waves are generated forever (the `waves` list is ignored). */
+  endless?: boolean;
 }

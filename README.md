@@ -28,6 +28,11 @@ reloads by itself, so an update can't interrupt a mission.
 The tiny line of text at the bottom-left of the title screen shows the version, whether you're
 in the installed app or a browser tab, whether offline mode is ready, the screen size, and the FPS.
 
+**Endless mode:** tap **ENDLESS** on the title screen. Waves never stop; each has a theme
+(Swarm, Shield line, Armored push, Combined assault), every 5th wave is a **surge**, and from
+wave 8 the Choir gets tougher every wave. Your top 5 runs (waves survived, kills) are saved on
+the device. Tune it in `src/data/endless.ts`.
+
 ---
 
 ## How to play (controls)
@@ -158,6 +163,7 @@ All numbers live in `src/data/`, with a comment on every field:
 - **`cover.ts`**: damage reduction and range bonus per cover type.
 - **`balance.ts`**: global rules: Power needed for Tech 2/3, veterancy XP and bonuses, sell refund, wave countdown, call-early bonus, reinforce/down timers, armor pierce per damage type, star thresholds.
 - **`waves/outpost01.ts`**: what spawns in each wave, when, and the clear bonus.
+- **`endless.ts`**: endless mode: threat budget curve, enemy costs, themes, surge waves, late-game scaling.
 - **`missions.ts`**: starting supplies, integrity, Command Cap, which units/buildings are available.
 
 Edit, save, and the dev server reloads. Run `npm run balance` to see how a scripted "good",

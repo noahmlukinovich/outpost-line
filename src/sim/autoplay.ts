@@ -19,10 +19,12 @@ export interface AutoplayResult {
   stars: number;
   integrity: number;
   wavesStarted: number;
+  wavesCleared: number;
+  kills: number;
   log: string[];
 }
 
-export function autoplay(mission: MissionDef, order: BuildStep[], seed = 1, callEarly = false): AutoplayResult {
+export function autoplay(mission: MissionDef, order: BuildStep[], seed = 1, callEarly = false, maxMinutes = 60): AutoplayResult {
   const w = new World(mission, seed);
   const tags = new Map<string, Placeable>();
   const log: string[] = [];
@@ -73,7 +75,7 @@ export function autoplay(mission: MissionDef, order: BuildStep[], seed = 1, call
 
   tryBuild();
   w.callWave();
-  const maxSteps = 60 * 30 * Balance.tickRate;
+  const maxSteps = maxMinutes * 60 * Balance.tickRate;
   for (let n = 0; n < maxSteps && !w.isOver; n++) {
     if (n % Balance.tickRate === 0) {
       tryBuild();
@@ -87,7 +89,7 @@ export function autoplay(mission: MissionDef, order: BuildStep[], seed = 1, call
     log.push(`stuck at step ${i}: ${JSON.stringify(st)} (tier ${tg?.tier}, supplies ${Math.floor(w.supplies)}, tech ${w.tech})`);
   }
   log.push(`RESULT: ${w.state} with ${w.stars}★, integrity ${w.integrity}/${w.maxIntegrity}, built ${i}/${order.length} steps`);
-  return { state: w.state, stars: w.stars, integrity: w.integrity, wavesStarted: w.wavesStarted, log };
+  return { state: w.state, stars: w.stars, integrity: w.integrity, wavesStarted: w.wavesStarted, wavesCleared: w.wavesCleared, kills: w.kills, log };
 }
 
 /** A sensible build for mission 1: economy early, specializations mid-game. */
@@ -137,4 +139,32 @@ export const LazyOrder01: BuildStep[] = [
   { place: 'rifle', x: 900, y: 660, tag: 'b' },
   { place: 'rifle', x: 340, y: 520, tag: 'c' },
   { place: 'rifle', x: 150, y: 400, tag: 'd' },
+];
+
+/** Endless: the good mission-1 build, then keep expanding and upgrading. */
+export const EndlessOrder01: BuildStep[] = [
+  ...GoodOrder01,
+  { place: 'depot', x: 1250, y: 650, tag: 'depot2' },
+  { upgrade: 'depot2' },
+  { upgrade: 'depot2' },
+  { ability: 'holdline', tag: 'bunker' },
+  { ability: 'cluster', tag: 'ruins' },
+  { ability: 'suppress', tag: 'north' },
+  { place: 'heavy', x: 130, y: 470, tag: 'gate' },
+  { upgrade: 'gate' },
+  { upgrade: 'gate' },
+  { spec: 'rocket', tag: 'gate' },
+  { ability: 'tandem', tag: 'gate' },
+  { ability: 'overpen', tag: 'trench' },
+  { ability: 'heavycal', tag: 'trench' },
+  { ability: 'steadyaim', tag: 'east' },
+  { ability: 'stims', tag: 'medic' },
+  { place: 'rifle', x: 1250, y: 320, tag: 'spawn' },
+  { upgrade: 'spawn' },
+  { upgrade: 'spawn' },
+  { spec: 'assault', tag: 'spawn' },
+  { ability: 'incinerator', tag: 'spawn' },
+  { ability: 'salvo', tag: 'gate' },
+  { ability: 'surgery', tag: 'medic' },
+  { ability: 'combatmedic', tag: 'medic' },
 ];

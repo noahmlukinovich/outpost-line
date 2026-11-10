@@ -21,10 +21,19 @@ export interface MissionProgress {
   bestIntegrity: number;
 }
 
+export interface EndlessRun {
+  waves: number;
+  kills: number;
+  /** ISO date string. */
+  date: string;
+}
+
 export interface SaveData {
   version: number;
   settings: Settings;
   missions: Record<string, MissionProgress>;
+  /** Best endless runs per mission id, best first (top 5). */
+  endless: Record<string, EndlessRun[]>;
 }
 
 function defaults(): SaveData {
@@ -32,6 +41,7 @@ function defaults(): SaveData {
     version: VERSION,
     settings: { damageNumbers: true, screenShake: true, sound: true, effectsHigh: true },
     missions: {},
+    endless: {},
   };
 }
 
@@ -44,6 +54,7 @@ function migrate(raw: unknown): SaveData {
     version: VERSION,
     settings: { ...base.settings, ...(r.settings ?? {}) },
     missions: { ...(r.missions ?? {}) },
+    endless: { ...(r.endless ?? {}) },
   };
 }
 
@@ -92,6 +103,22 @@ class SaveSystem {
       bestIntegrity: Math.max(prev?.bestIntegrity ?? 0, integrity),
     };
     this.persist();
+  }
+
+  endlessRuns(id: string): EndlessRun[] {
+    return this.data.endless[id] ?? [];
+  }
+
+  /** Record an endless run; returns its rank (0 = new best) or -1 if it didn't make the top 5. */
+  recordEndless(id: string, waves: number, kills: number): number {
+    const runs = [...this.endlessRuns(id)];
+    const run: EndlessRun = { waves, kills, date: new Date().toISOString() };
+    runs.push(run);
+    runs.sort((a, b) => b.waves - a.waves || b.kills - a.kills);
+    runs.length = Math.min(runs.length, 5);
+    this.data.endless[id] = runs;
+    this.persist();
+    return runs.indexOf(run);
   }
 }
 

@@ -16,6 +16,19 @@ export const Missions: MissionDef[] = [
     units: ['rifle', 'heavy', 'sniper', 'engineer'],
     buildings: ['depot', 'reactor'],
   },
+  {
+    id: 'endless01',
+    name: 'Endless: Firebase Ridgeline',
+    briefing: 'No relief is coming. Hold as long as you can.',
+    mapJson: outpost01Map,
+    waves: [],
+    startingSupplies: 360,
+    integrity: 20,
+    commandCap: 10,
+    units: ['rifle', 'heavy', 'sniper', 'engineer'],
+    buildings: ['depot', 'reactor'],
+    endless: true,
+  },
 ];
 
 export function getMission(id: string): MissionDef {

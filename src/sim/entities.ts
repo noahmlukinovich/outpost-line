@@ -104,6 +104,12 @@ export interface Enemy {
   hp: number;
   maxHp: number;
   shield: number;
+  /** Shield capacity (def.shield × endless scaling). */
+  maxShield: number;
+  /** Speed multiplier from endless scaling. */
+  speedMult: number;
+  /** Bounty multiplier (endless: tougher capped waves pay more). */
+  bountyMult: number;
   shieldTimer: number;
   attackCd: number;
   engaged: Squad | null;

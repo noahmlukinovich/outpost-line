@@ -19,6 +19,9 @@ import type { SimEvents } from './events';
 import { Rng } from './Rng';
 import { SpatialHash } from './SpatialHash';
 import { computeStats, type SquadStats } from './stats';
+import { endlessScale, generateWave, type GeneratedWave } from './director';
+import { Endless } from '../data/endless';
+import type { WaveDef } from '../data/types';
 
 export type GameState = 'prep' | 'running' | 'won' | 'lost';
 
@@ -60,7 +63,7 @@ export class World {
   wavesStarted = 0;
   /** Seconds until the next wave auto-starts; -1 while not counting down. */
   countdown = -1;
-  countdownTotal = Balance.waveCountdown;
+  countdownTotal: number = Balance.waveCountdown;
 
   readonly squads: Squad[] = [];
   readonly buildings: Building[] = [];
@@ -71,9 +74,13 @@ export class World {
   private readonly enemyPool: Enemy[] = [];
   private readonly shellPool: Projectile[] = [];
   private readonly groups: ActiveGroup[] = [];
-  private readonly waveAlive: number[];
-  private readonly waveSpawnDone: boolean[];
-  private readonly waveCleared: boolean[];
+  private readonly waveAlive: number[] = [];
+  private readonly waveSpawnDone: boolean[] = [];
+  private readonly waveCleared: boolean[] = [];
+  private readonly generated = new Map<number, GeneratedWave>();
+  readonly seed: number;
+  /** Enemies killed this mission (endless score). */
+  kills = 0;
   private readonly coverOccupant = new Map<number, Squad>();
   private readonly hash: SpatialHash<Enemy>;
   private readonly near: Enemy[] = [];
@@ -88,10 +95,7 @@ export class World {
     this.supplies = mission.startingSupplies;
     this.integrity = this.maxIntegrity = mission.integrity;
     this.hash = new SpatialHash(this.map.width, this.map.height, 64);
-    const n = mission.waves.length;
-    this.waveAlive = new Array(n).fill(0);
-    this.waveSpawnDone = new Array(n).fill(false);
-    this.waveCleared = new Array(n).fill(false);
+    this.seed = seed;
     // Validate data cross-references early, with readable errors.
     for (const w of mission.waves) for (const g of w.groups) {
       getEnemy(g.enemy);
@@ -101,8 +105,28 @@ export class World {
     for (const b of mission.buildings) getBuilding(b);
   }
 
+  get endless(): boolean {
+    return !!this.mission.endless;
+  }
+
   get totalWaves(): number {
-    return this.mission.waves.length;
+    return this.endless ? Infinity : this.mission.waves.length;
+  }
+
+  /** The definition of wave `index` (generated on demand in endless mode). */
+  waveDef(index: number): WaveDef & { theme?: string; surge?: boolean } {
+    if (!this.endless) return this.mission.waves[index];
+    let w = this.generated.get(index);
+    if (!w) {
+      w = generateWave(index, this.seed);
+      this.generated.set(index, w);
+    }
+    return w;
+  }
+
+  /** Waves fully cleared (endless score). */
+  get wavesCleared(): number {
+    return this.waveCleared.filter(Boolean).length;
   }
 
   get stars(): number {
@@ -537,7 +561,7 @@ export class World {
       this.integrity = 0;
       this.state = 'lost';
       this.events.gameOver?.(false);
-    } else if (this.wavesStarted === this.totalWaves && this.waveSpawnDone.every(Boolean) && this.enemies.length === 0) {
+    } else if (!this.endless && this.wavesStarted === this.totalWaves && this.waveSpawnDone.every(Boolean) && this.enemies.length === 0) {
       this.state = 'won';
       this.events.gameOver?.(true);
     }
@@ -547,7 +571,10 @@ export class World {
 
   private startWave(earlyBonus: number): void {
     const index = this.wavesStarted++;
-    const wave = this.mission.waves[index];
+    const wave = this.waveDef(index);
+    this.waveAlive[index] = 0;
+    this.waveSpawnDone[index] = false;
+    this.waveCleared[index] = false;
     this.state = 'running';
     this.countdown = -1;
     for (const g of wave.groups) {
@@ -584,7 +611,7 @@ export class World {
     }
     const cur = this.wavesStarted - 1;
     if (this.state === 'running' && this.countdown < 0 && cur >= 0 && this.waveSpawnDone[cur] && this.wavesStarted < this.totalWaves) {
-      this.countdown = this.countdownTotal = Balance.waveCountdown;
+      this.countdown = this.countdownTotal = this.endless ? Endless.countdown : Balance.waveCountdown;
     }
     if (this.countdown > 0) {
       this.countdown -= dt;
@@ -599,7 +626,7 @@ export class World {
     for (let i = 0; i < this.wavesStarted; i++) {
       if (!this.waveCleared[i] && this.waveSpawnDone[i] && this.waveAlive[i] === 0) {
         this.waveCleared[i] = true;
-        const bonus = this.mission.waves[i].clearBonus;
+        const bonus = this.waveDef(i).clearBonus;
         this.supplies += bonus;
         this.events.waveCleared?.(i, bonus);
       }
@@ -618,8 +645,13 @@ export class World {
     e.heading = path.sample(0, this.tmp);
     e.x = e.prevX = this.tmp.x;
     e.y = e.prevY = this.tmp.y;
-    e.hp = e.maxHp = def.hp;
-    e.shield = def.shield;
+    const scale = this.endless ? endlessScale(wave) : { hp: 1, speed: 1 };
+    const capMult = this.endless ? (this.waveDef(wave) as GeneratedWave).hpMult : 1;
+    scale.hp *= capMult;
+    e.bountyMult = capMult;
+    e.hp = e.maxHp = def.hp * scale.hp;
+    e.shield = e.maxShield = def.shield * scale.hp;
+    e.speedMult = scale.speed;
     e.shieldTimer = 0;
     e.attackCd = this.rng.range(0.2, 1);
     e.engaged = null;
@@ -1151,8 +1183,9 @@ export class World {
         e.engaged.engagedBy = Math.max(0, e.engaged.engagedBy - 1);
         e.engaged = null;
       }
-      const bounty = Math.round(e.def.bounty * (1 + (e.markT > 0 ? e.markBounty : 0)));
+      const bounty = Math.round(e.def.bounty * e.bountyMult * (1 + (e.markT > 0 ? e.markBounty : 0)));
       this.supplies += bounty;
+      this.kills++;
       if (source && !source.removed) {
         source.kills++;
         this.awardXp(source, e.def.bounty);
@@ -1194,7 +1227,7 @@ export class World {
   }
 
   private enemySpeed(e: Enemy): number {
-    return e.def.speed * (e.berserk ? Balance.berserkSpeed : 1) * (e.slowT > 0 ? 1 - e.slowMult : 1);
+    return e.def.speed * e.speedMult * (e.berserk ? Balance.berserkSpeed : 1) * (e.slowT > 0 ? 1 - e.slowMult : 1);
   }
 
   private updateEnemy(e: Enemy, dt: number): void {
@@ -1213,9 +1246,9 @@ export class World {
       if (!e.alive) return;
     }
 
-    if (def.shield > 0 && e.shield < def.shield) {
+    if (e.maxShield > 0 && e.shield < e.maxShield) {
       e.shieldTimer += dt;
-      if (e.shieldTimer >= def.shieldDelay) e.shield = Math.min(def.shield, e.shield + def.shieldRegen * dt);
+      if (e.shieldTimer >= def.shieldDelay) e.shield = Math.min(e.maxShield, e.shield + def.shieldRegen * (e.maxShield / def.shield) * dt);
     }
 
     if (e.stunT > 0) {

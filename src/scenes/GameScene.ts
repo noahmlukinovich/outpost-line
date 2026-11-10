@@ -30,6 +30,8 @@ export class GameScene extends Phaser.Scene {
   missionId = 'outpost01';
   paused = false;
   speed = 1;
+  /** Leaderboard position of the finished endless run (-1 = not in top 5). */
+  endlessRank = -1;
   private acc = 0;
   private resultSaved = false;
   private onVisibility = () => {
@@ -49,6 +51,7 @@ export class GameScene extends Phaser.Scene {
     this.speed = 1;
     this.acc = 0;
     this.resultSaved = false;
+    this.endlessRank = -1;
 
     this.world = new World(getMission(this.missionId), (Date.now() & 0xffffff) + 1);
     this.view = new WorldRenderer(this, this.world);
@@ -67,6 +70,17 @@ export class GameScene extends Phaser.Scene {
       document.removeEventListener('visibilitychange', this.onVisibility);
       this.scene.stop('UI');
     });
+  }
+
+  /** Save the mission result once (safe to call repeatedly; the UI calls it too). */
+  recordResult(): void {
+    const world = this.world;
+    if (!world.isOver || this.resultSaved) return;
+    this.resultSaved = true;
+    this.controller.cancelPlacement();
+    this.controller.select(null);
+    if (world.state === 'won') save.recordMission(this.missionId, world.stars, world.integrity);
+    if (world.endless) this.endlessRank = save.recordEndless(this.missionId, world.wavesCleared, world.kills);
   }
 
   applySettings(): void {
@@ -124,11 +138,6 @@ export class GameScene extends Phaser.Scene {
     this.rig.update(dt);
     this.router.update(dt, HUD);
 
-    if (world.isOver && !this.resultSaved) {
-      this.resultSaved = true;
-      this.controller.cancelPlacement();
-      this.controller.select(null);
-      if (world.state === 'won') save.recordMission(this.missionId, world.stars, world.integrity);
-    }
+    if (world.isOver) this.recordResult();
   }
 }

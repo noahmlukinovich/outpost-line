@@ -343,7 +343,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   }
 
   private buildEnd(): void {
-    const pw = 380, ph = 300;
+    const pw = 400, ph = 340;
     this.end = this.add.container((this.W - pw) / 2, (this.H - ph) / 2).setVisible(false);
     const bg = panelBg(this, pw, ph, 0.97);
     this.endTitle = text(this, pw / 2, 40, '', 28, Palette.uiAmber, '900').setOrigin(0.5).setLetterSpacing(4);
@@ -377,20 +377,25 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   private showEnd(): void {
     const w = this.gs.world;
+    this.gs.recordResult();
     this.modal = 'end';
     this.dim.setVisible(true);
     this.menu.setVisible(false);
     this.end.setVisible(true);
+    if (w.endless) {
+      this.showEndlessEnd();
+      return;
+    }
     const won = w.state === 'won';
     this.endTitle.setText(won ? 'OUTPOST HELD' : 'OUTPOST LOST').setColor(css(won ? Palette.uiAmber : 0xff6a5a));
     this.endInfo.setText(
       won
         ? `Integrity ${w.integrity}/${w.maxIntegrity}\nBest: ${Math.max(w.stars, save.mission(w.mission.id)?.stars ?? 0)}★`
-        : `Survived ${Math.max(0, w.wavesStarted - 1)} of ${w.totalWaves} waves\nThe Choir broke through.`,
+        : `Survived ${w.wavesCleared} of ${w.totalWaves} waves\nThe Choir broke through.`,
     );
     const g = this.endStars.clear();
     for (let i = 0; i < 3; i++) {
-      const cx = 380 / 2 + (i - 1) * 64, cy = 100;
+      const cx = 400 / 2 + (i - 1) * 64, cy = 100;
       const pts: Phaser.Math.Vector2[] = [];
       for (let k = 0; k < 10; k++) {
         const r = k % 2 === 0 ? 26 : 11;
@@ -400,6 +405,20 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       g.fillStyle(i < w.stars ? Palette.uiAmber : 0x3a3d34, 1).fillPoints(pts, true);
       g.lineStyle(2, 0x000000, 0.5).strokePoints(pts, true);
     }
+  }
+
+  private showEndlessEnd(): void {
+    const w = this.gs.world;
+    const rank = this.gs.endlessRank;
+    this.endTitle.setText(rank === 0 ? 'NEW RECORD!' : 'OUTPOST FELL').setColor(css(rank === 0 ? Palette.uiAmber : 0xff6a5a));
+    this.endStars.clear();
+    const runs = save.endlessRuns(w.mission.id);
+    const lines = [`You held for ${w.wavesCleared} waves · ${w.kills} kills`, '', 'BEST RUNS'];
+    runs.forEach((r, i) => {
+      const d = new Date(r.date);
+      lines.push(`${i === rank ? '▶ ' : ''}${i + 1}.  Wave ${r.waves}  ·  ${r.kills} kills  ·  ${d.toLocaleDateString()}`);
+    });
+    this.endInfo.setText(lines.join('\n')).setY(140).setFontSize(15).setLineSpacing(4);
   }
 
   // ================================================================== input
@@ -544,11 +563,12 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private showPreview(waveIndex: number, seconds: number): void {
     const w = this.gs.world;
     if (waveIndex >= w.totalWaves) return;
+    const def = w.waveDef(waveIndex);
     this.previewFor = waveIndex;
     this.previewTimer = seconds; // 0 = stay open
     this.previewBody.removeAll(true);
     const counts = new Map<string, number>();
-    for (const g of w.mission.waves[waveIndex].groups) counts.set(g.enemy, (counts.get(g.enemy) ?? 0) + g.count);
+    for (const g of def.groups) counts.set(g.enemy, (counts.get(g.enemy) ?? 0) + g.count);
     const pw = 320;
     let y = 40;
     for (const [id, n] of counts) {
@@ -560,7 +580,8 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       this.previewBody.add([icon, name, hint]);
       y += 32 + hint.height;
     }
-    setText(this.previewTitle, `WAVE ${waveIndex + 1} INTEL  ·  tap to close`);
+    setText(this.previewTitle, `WAVE ${waveIndex + 1}${def.theme ? ` · ${def.theme.toUpperCase()}` : ''}  ·  tap to close`);
+    this.previewTitle.setColor(css(def.surge ? 0xff8a6a : Palette.uiAmber));
     const ph = y + 12;
     this.previewBg.destroy();
     this.previewBg = panelBg(this, pw, ph, 0.94);
@@ -608,7 +629,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     // Top bar
     setText(this.suppliesText, `${Math.floor(w.supplies)}`);
     setText(this.integrityText, `${w.integrity}/${w.maxIntegrity}`);
-    setText(this.waveText, `${Math.max(1, w.wavesStarted)}/${w.totalWaves}`);
+    setText(this.waveText, w.endless ? `${Math.max(1, w.wavesStarted)}` : `${Math.max(1, w.wavesStarted)}/${w.totalWaves}`);
     setText(this.powerText, `${w.power} T${w.tech}`);
     setText(this.capText, `${w.capUsed}/${w.capMax}`);
     this.capText.setColor(w.capUsed >= w.capMax ? '#ff8a7a' : css(Palette.uiText));

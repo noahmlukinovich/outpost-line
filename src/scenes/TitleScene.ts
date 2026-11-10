@@ -239,54 +239,16 @@ export class TitleScene extends Phaser.Scene {
       .setAlpha(0.8)
       .setDepth(100);
 
-    // Big, finger-friendly button (well over the 48pt minimum).
-    const bw = 300, bh = 68;
-    const bx = right - bw, by = H * 0.16 + titleSize * 0.75 + 40;
-    const btn = this.add.graphics().setDepth(100);
-    const label = this.add
-      .text(bx + bw / 2, by + bh / 2, '', {
-        fontFamily: FONT,
-        fontSize: '22px',
-        fontStyle: '800',
-        color: css(Palette.uiPanel),
-        resolution: DPR,
-      })
-      .setOrigin(0.5)
-      .setLetterSpacing(4)
-      .setDepth(101);
-    const hint = this.add
-      .text(bx + bw, by + bh + 22, '', {
-        fontFamily: FONT,
-        fontSize: '15px',
-        color: css(Palette.uiText),
-        resolution: DPR,
-        align: 'right',
-      })
-      .setOrigin(1, 0)
-      .setAlpha(0.75)
-      .setDepth(100);
-
-    const draw = (pressed: boolean) => {
-      btn.clear();
-      btn.fillStyle(0x000000, 0.45).fillRoundedRect(bx + 3, by + 5, bw, bh, 8);
-      btn.fillStyle(Palette.uiAmber, 1).fillRoundedRect(bx, by + (pressed ? 2 : 0), bw, bh, 8);
-      label.setText('DEPLOY').setY(by + bh / 2 + (pressed ? 2 : 0));
-      const best = save.mission('outpost01')?.stars ?? 0;
-      hint.setText(`Mission 1: Firebase Ridgeline\nBest: ${'★'.repeat(best)}${'☆'.repeat(3 - best)}`);
-    };
-    draw(false);
-
-    const zone = this.add.zone(bx, by, bw, bh).setOrigin(0, 0).setInteractive({ useHandCursor: true }).setDepth(102);
-    zone.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, ev: Phaser.Types.Input.EventData) => {
-      ev.stopPropagation();
-      sfx.unlock();
-      draw(true);
-    });
-    zone.on('pointerup', () => {
-      sfx.click();
-      this.scene.start('Game', { missionId: 'outpost01' });
-    });
-    zone.on('pointerout', () => draw(false));
+    // Big, finger-friendly buttons (well over the 48pt minimum).
+    const bw = 300, bh = 64;
+    const bx = right - bw;
+    const top = H * 0.16 + titleSize * 0.75 + 36;
+    const best = save.mission('outpost01')?.stars ?? 0;
+    this.menuButton(bx, top, bw, bh, 'DEPLOY', Palette.uiAmber, `Mission 1: Firebase Ridgeline  ·  Best ${'★'.repeat(best)}${'☆'.repeat(3 - best)}`, 'outpost01');
+    const runs = save.endlessRuns('endless01');
+    const bestRun = runs[0];
+    this.menuButton(bx, top + bh + 46, bw, bh, 'ENDLESS', 0x7fd4e8,
+      bestRun ? `Survive as long as you can  ·  Best: wave ${bestRun.waves}` : 'Survive as long as you can', 'endless01');
 
     this.statusText = this.add
       .text(Math.max(16, inset.left + 12), H - Math.max(14, inset.bottom + 8), '', {
@@ -298,6 +260,38 @@ export class TitleScene extends Phaser.Scene {
       .setOrigin(0, 1)
       .setDepth(100);
     this.updateStatus();
+  }
+
+  private menuButton(bx: number, by: number, bw: number, bh: number, text: string, color: number, hintText: string, missionId: string): void {
+    const btn = this.add.graphics().setDepth(100);
+    const label = this.add
+      .text(bx + bw / 2, by + bh / 2, text, { fontFamily: FONT, fontSize: '22px', fontStyle: '800', color: css(Palette.uiPanel), resolution: DPR })
+      .setOrigin(0.5)
+      .setLetterSpacing(4)
+      .setDepth(101);
+    this.add
+      .text(bx + bw, by + bh + 8, hintText, { fontFamily: FONT, fontSize: '14px', color: css(Palette.uiText), resolution: DPR, align: 'right' })
+      .setOrigin(1, 0)
+      .setAlpha(0.75)
+      .setDepth(100);
+    const draw = (pressed: boolean) => {
+      btn.clear();
+      btn.fillStyle(0x000000, 0.45).fillRoundedRect(bx + 3, by + 5, bw, bh, 8);
+      btn.fillStyle(color, 1).fillRoundedRect(bx, by + (pressed ? 2 : 0), bw, bh, 8);
+      label.setY(by + bh / 2 + (pressed ? 2 : 0));
+    };
+    draw(false);
+    const zone = this.add.zone(bx, by, bw, bh).setOrigin(0, 0).setInteractive({ useHandCursor: true }).setDepth(102);
+    zone.on('pointerdown', (_p: Phaser.Input.Pointer, _x: number, _y: number, ev: Phaser.Types.Input.EventData) => {
+      ev.stopPropagation();
+      sfx.unlock();
+      draw(true);
+    });
+    zone.on('pointerup', () => {
+      sfx.click();
+      this.scene.start('Game', { missionId });
+    });
+    zone.on('pointerout', () => draw(false));
   }
 
   private updateStatus(): void {

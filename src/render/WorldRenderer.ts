@@ -465,7 +465,7 @@ export class WorldRenderer implements SimEvents {
       }
     }
 
-    const maxShield = e.def.shield;
+    const maxShield = e.maxShield;
     if (maxShield > 0 && e.shield > 0) {
       v.shieldFlash = Math.max(0, v.shieldFlash - dt * 4);
       v.shield.setVisible(true).setPosition(x, y).setDisplaySize(r * 3.2, r * 3.2)
