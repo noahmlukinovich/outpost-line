@@ -102,6 +102,10 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private panelH = 0;
   private sellArmed = 0;
 
+  // Boss bar
+  private bossBar!: Phaser.GameObjects.Graphics;
+  private bossName!: Phaser.GameObjects.Text;
+
   // Toast
   private toastText!: Phaser.GameObjects.Text;
   private toastTimer = 0;
@@ -146,6 +150,8 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.buildPanel();
     this.toastText = text(this, this.W / 2, HUD.top + 30, '', 20, Palette.uiText, '800').setOrigin(0.5).setAlpha(0)
       .setShadow(0, 2, '#000', 6, false, true);
+    this.bossBar = this.add.graphics();
+    this.bossName = text(this, this.W / 2, HUD.top + 4, '', 14, 0xff8a6a, '900').setOrigin(0.5, 0).setLetterSpacing(3).setVisible(false);
     this.pausedBanner = text(this, this.W / 2, this.H / 2 - 40, 'PAUSED', 44, Palette.uiAmber, '900').setOrigin(0.5)
       .setShadow(0, 3, '#000', 10, false, true).setLetterSpacing(8).setVisible(false);
     this.buildMenu();
@@ -660,10 +666,26 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.updateWaveUi(dt);
     this.updatePanel(dt);
 
+    this.updateBossBar();
+    this.toastText.setY(this.bossName.visible ? HUD.top + 62 : HUD.top + 30);
+
     this.toastTimer -= dt;
     this.toastText.setAlpha(Phaser.Math.Clamp(this.toastTimer * 2, 0, 1));
 
     if (w.isOver && this.modal !== 'end') this.showEnd();
+  }
+
+  private updateBossBar(): void {
+    const g = this.bossBar.clear();
+    const boss = this.gs.world.enemies.find((e) => e.alive && e.def.phases);
+    this.bossName.setVisible(!!boss);
+    if (!boss) return;
+    const w = Math.min(420, this.W - 200), x = (this.W - w) / 2, y = HUD.top + 22;
+    setText(this.bossName, boss.def.name.toUpperCase());
+    g.fillStyle(0x000000, 0.7).fillRoundedRect(x - 3, y - 3, w + 6, 14, 4);
+    g.fillStyle(0x5a1a1a, 1).fillRect(x, y, w, 8);
+    g.fillStyle(0xe0475f, 1).fillRect(x, y, w * Math.max(0, boss.hp / boss.maxHp), 8);
+    for (const at of boss.def.phases!.at) g.fillStyle(0xffffff, 0.8).fillRect(x + w * at - 1, y - 2, 2, 12);
   }
 
   private updatePlacementUi(): void {
@@ -816,6 +838,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       tier.income ? `Pays ⛁ ${tier.income} at the start of every wave` : '',
       tier.power ? `Provides ⚡ ${tier.power} Power (you have ${w.power}, Tech ${w.tech})` : '',
       tier.power ? `Tech 2 at ⚡${Balance.techPower[0]}, Tech 3 at ⚡${Balance.techPower[1]}` : '',
+      tier.detect ? `Reveals cloaked enemies within ${tier.detect}` : '',
       'Uses no Command Cap. Enemies ignore it.',
     ].filter(Boolean);
     setText(this.panelInfo, lines.join('\n'));
@@ -851,6 +874,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       `${type} · ${Math.round(dps)} dmg/s${st.splash ? ' · splash' : ''} · range ${Math.round(w.rangeOf(s))}`,
       `Troopers ${alive}/${s.def.troopers} · ${Math.round(st.hp)} hp · blocks ${st.blockCap}`,
       cover ? `In ${cover.name}: −${Math.round(cover.damageReduction * 100)}% damage taken` : 'No cover: drag the flag into some',
+      st.projectile === 'shell' ? "Grenades can't hit fliers" : st.antiAir ? 'Anti-air: double damage to fliers' : 'Can hit fliers',
     ];
     if (st.turretCount) lines.push(`${st.turretCount} turrets · ${Math.round((st.turretWeapon?.damage ?? 0) * st.turretDamage * (st.turretWeapon?.rof ?? 0))} dmg/s each`);
     if (st.aura) lines.push(`Aura: ${[st.aura.heal ? `heal ${st.aura.heal}/s` : '', st.aura.rof > 1 ? `+${Math.round((st.aura.rof - 1) * 100)}% fire rate` : '', st.aura.reinforce > 1 ? 'fast reinforce' : ''].filter(Boolean).join(', ')}`);

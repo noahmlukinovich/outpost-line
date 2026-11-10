@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { getMission } from '../data/missions';
-import { autoplay, EndlessOrder01, GoodOrder01, LazyOrder01, MediumOrder01 } from './autoplay';
+import { autoplay, EndlessOrder01, GoodOrder01, GoodOrder02, LazyOrder01, LazyOrder02, MediumOrder01, MediumOrder02 } from './autoplay';
 
 const mission = getMission('outpost01');
 
@@ -38,5 +38,17 @@ describe('endless balance', () => {
     expect(strong.state).toBe('lost');
     expect(strong.wavesCleared).toBeGreaterThan(weak.wavesCleared);
     expect(weak.wavesCleared).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('mission 2 balance', () => {
+  it('good build wins, lazy build loses', () => {
+    const m = getMission('outpost02');
+    const good = autoplay(m, GoodOrder02);
+    const med = autoplay(m, MediumOrder02);
+    const lazy = autoplay(m, LazyOrder02);
+    console.log(['M2 GOOD', ...good.log, 'M2 MEDIUM', ...med.log.slice(-2), 'M2 LAZY', ...lazy.log.slice(-2)].join('\n'));
+    expect(good.state).toBe('won');
+    expect(lazy.state).toBe('lost');
   });
 });

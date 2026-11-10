@@ -9,6 +9,8 @@
  *            Optional `look` = rock | water | cliff (visual only).
  *   cover  – points with property `coverType` = sandbags | trench | ruins | bunker.
  *   decor  – points with property `prop` = floodlight | crate | wreck (visual only).
+ *   flight – polylines: routes for flying enemies (they ignore the road). Name = route id.
+ *   drops  – points: where dropships hover and unload troops onto the nearest road.
  */
 import { Cover } from '../data/cover';
 import { Path, distToPolygonEdge, pointInPolygon, type Vec } from './geometry';
@@ -43,6 +45,8 @@ export interface MapModel {
   zones: Zone[];
   cover: CoverPoint[];
   decor: DecorPoint[];
+  flights: Path[];
+  drops: { x: number; y: number }[];
 }
 
 interface TiledProperty {
@@ -95,6 +99,8 @@ export function loadTiledMap(json: string): MapModel {
     zones: [],
     cover: [],
     decor: [],
+    flights: [],
+    drops: [],
   };
 
   for (const o of layer(map, 'paths')) {
@@ -115,6 +121,12 @@ export function loadTiledMap(json: string): MapModel {
   for (const o of layer(map, 'decor')) {
     model.decor.push({ prop: prop(o.properties, 'prop', o.name), x: o.x, y: o.y });
   }
+
+  for (const o of layer(map, 'flight')) {
+    if (!o.polyline) throw new Error(`Map: object "${o.name}" in "flight" must be a polyline`);
+    model.flights.push(new Path(o.name || `flight_${model.flights.length}`, absolute(o, o.polyline), 40));
+  }
+  for (const o of layer(map, 'drops')) model.drops.push({ x: o.x, y: o.y });
 
   if (model.paths.length === 0) throw new Error('Map: needs at least one path in the "paths" layer');
   return model;

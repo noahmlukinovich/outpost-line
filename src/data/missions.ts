@@ -1,6 +1,8 @@
 /** Missions: which map, which waves, starting resources and available units. */
 import type { MissionDef } from './types';
 import { Outpost01Waves } from './waves/outpost01';
+import { Outpost02Waves } from './waves/outpost02';
+import outpost02Map from '../maps/outpost02.tmj?raw';
 import outpost01Map from '../maps/outpost01.tmj?raw';
 
 export const Missions: MissionDef[] = [
@@ -17,6 +19,18 @@ export const Missions: MissionDef[] = [
     buildings: ['depot', 'reactor'],
   },
   {
+    id: 'outpost02',
+    name: 'Dustline Junction',
+    briefing: 'Two roads, one gate, and the Choir has learned to fly. Hold twelve waves.',
+    mapJson: outpost02Map,
+    waves: Outpost02Waves,
+    startingSupplies: 460,
+    integrity: 20,
+    commandCap: 9,
+    units: ['rifle', 'heavy', 'sniper', 'engineer'],
+    buildings: ['depot', 'reactor', 'sensor'],
+  },
+  {
     id: 'endless01',
     name: 'Endless: Firebase Ridgeline',
     briefing: 'No relief is coming. Hold as long as you can.',
@@ -26,7 +40,7 @@ export const Missions: MissionDef[] = [
     integrity: 20,
     commandCap: 10,
     units: ['rifle', 'heavy', 'sniper', 'engineer'],
-    buildings: ['depot', 'reactor'],
+    buildings: ['depot', 'reactor', 'sensor'],
     endless: true,
   },
 ];

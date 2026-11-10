@@ -149,6 +149,8 @@ export interface BuildingTier {
   power?: number;
   /** Supplies paid at the start of every wave (Supply Depots). */
   income?: number;
+  /** Reveals cloaked enemies within this radius (Sensor Pylons). */
+  detect?: number;
   blurb: string;
 }
 
@@ -194,6 +196,20 @@ export interface EnemyDef {
   };
   /** Below this hp fraction the enemy goes berserk (faster, hits harder). 0 = never. */
   berserkAt: number;
+  /** Flies along the map's flight routes instead of the road. Grenades and flames can't hit it. */
+  flier?: boolean;
+  /** Invisible and untargetable unless revealed by a detector (or briefly after it attacks). */
+  cloaked?: boolean;
+  /** Can't be held back by squads (walks straight through). */
+  unblockable?: boolean;
+  /** Heals and recharges shields of other aliens nearby (per second). */
+  healAura?: { radius: number; heal: number; shield: number };
+  /** Dropship: flies in, hovers at the drop point, and unloads these troops onto the road. */
+  carrier?: { troops: { enemy: string; count: number }[]; hover: number };
+  /** Area stomp that hits every squad within `radius`. */
+  stomp?: { radius: number; damage: number; rate: number };
+  /** Boss phases: at each hp fraction, armor drops, speed rises and reinforcements appear. */
+  phases?: { at: number[]; armorDrop: number; speedUp: number; spawn: { enemy: string; count: number } };
   art: string;
 }
 

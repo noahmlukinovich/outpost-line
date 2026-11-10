@@ -10,8 +10,8 @@
  "tiledversion": "1.11.0",
  "type": "map",
  "version": "1.10",
- "nextlayerid": 5,
- "nextobjectid": 22,
+ "nextlayerid": 7,
+ "nextobjectid": 24,
  "properties": [
   {
    "name": "biome",
@@ -660,6 +660,75 @@
        "value": "floodlight"
       }
      ]
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "name": "flight",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "opacity": 1,
+   "visible": true,
+   "x": 0,
+   "y": 0,
+   "objects": [
+    {
+     "id": 22,
+     "name": "flight_a",
+     "type": "",
+     "x": 0,
+     "y": 0,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "polyline": [
+      {
+       "x": 1500,
+       "y": 320
+      },
+      {
+       "x": 980,
+       "y": 400
+      },
+      {
+       "x": 620,
+       "y": 300
+      },
+      {
+       "x": 300,
+       "y": 420
+      },
+      {
+       "x": -60,
+       "y": 690
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "name": "drops",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "opacity": 1,
+   "visible": true,
+   "x": 0,
+   "y": 0,
+   "objects": [
+    {
+     "id": 23,
+     "name": "drop",
+     "type": "",
+     "x": 560,
+     "y": 400,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true
     }
    ]
   }

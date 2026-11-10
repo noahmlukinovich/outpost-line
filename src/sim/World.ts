@@ -539,6 +539,7 @@ export class World {
     this.hash.clear();
     for (const e of this.enemies) this.hash.insert(e);
 
+    this.updateDetection(dt);
     this.updateAuras(dt);
     for (const s of this.squads) this.updateSquad(s, dt);
     for (let i = this.enemies.length - 1; i >= 0; i--) this.updateEnemy(this.enemies[i], dt);
@@ -578,8 +579,7 @@ export class World {
     this.state = 'running';
     this.countdown = -1;
     for (const g of wave.groups) {
-      const path = g.path ? this.map.paths.find((p) => p.name === g.path)! : this.map.paths[0];
-      this.groups.push({ group: g, wave: index, path, spawned: 0, timer: g.delay });
+      this.groups.push({ group: g, wave: index, path: this.routeFor(g.enemy, g.path), spawned: 0, timer: g.delay });
     }
     if (wave.groups.length === 0) this.waveSpawnDone[index] = true;
     // Supply Depots pay out at the start of every wave after the first.
@@ -633,16 +633,31 @@ export class World {
     }
   }
 
-  private spawnEnemy(id: string, path: Path, wave: number): void {
+  /** Which route an enemy type uses: fliers take a flight route, everyone else a road. */
+  private routeFor(enemyId: string, name?: string): Path {
+    const def = getEnemy(enemyId);
+    if (def.flier && this.map.flights.length) {
+      return this.map.flights.find((p) => p.name === name) ?? this.map.flights[this.rng.next() * this.map.flights.length | 0];
+    }
+    const roads = this.map.paths;
+    if (name) {
+      const p = roads.find((q) => q.name === name);
+      if (p) return p;
+    }
+    // Unnamed groups alternate between roads on multi-road maps.
+    return roads[this.rng.next() * roads.length | 0];
+  }
+
+  private spawnEnemy(id: string, path: Path, wave: number, startDist = 0): Enemy {
     const def = getEnemy(id);
     const e: Enemy = this.enemyPool.pop() ?? ({} as Enemy);
     e.id = this.nextId++;
     e.def = def;
     e.alive = true;
     e.path = path;
-    e.dist = 0;
-    e.lane = this.rng.range(-0.32, 0.32) * path.width;
-    e.heading = path.sample(0, this.tmp);
+    e.dist = startDist;
+    e.lane = this.rng.range(-0.32, 0.32) * path.width * (def.radius > 20 ? 0.2 : 1);
+    e.heading = path.sample(startDist, this.tmp);
     e.x = e.prevX = this.tmp.x;
     e.y = e.prevY = this.tmp.y;
     const scale = this.endless ? endlessScale(wave) : { hp: 1, speed: 1 };
@@ -660,9 +675,74 @@ export class World {
     e.slowT = e.slowMult = e.stunT = e.markT = e.markMult = e.markBounty = 0;
     e.suppressT = e.suppressMult = e.burnT = e.burnDps = 0;
     e.burnSource = null;
+    e.revealT = 0;
+    e.revealed = !def.cloaked;
+    e.carrierState = 0;
+    e.hoverT = 0;
+    e.dropDist = path.length * 0.55;
+    if (def.carrier && this.map.drops.length) {
+      // Unload at the drop point closest to this route.
+      let best = Infinity;
+      for (const d of this.map.drops) {
+        const along = path.distanceAt(d.x, d.y);
+        path.sample(along, this.tmp);
+        const off = Math.hypot(this.tmp.x - d.x, this.tmp.y - d.y);
+        if (off < best) {
+          best = off;
+          e.dropDist = along;
+        }
+      }
+    }
+    e.phaseIdx = 0;
+    e.armorMod = 0;
+    e.stompCd = 2;
     this.enemies.push(e);
     this.waveAlive[wave]++;
     this.events.enemySpawned?.(e);
+    return e;
+  }
+
+  /** Can squads/turrets aim at this enemy right now? */
+  private targetable(e: Enemy): boolean {
+    return e.alive && e.revealed;
+  }
+
+  /** Cloaked enemies are revealed near detectors (Sensor Pylons, Spotter optics) or briefly after attacking. */
+  private updateDetection(dt: number): void {
+    for (const e of this.enemies) {
+      if (!e.def.cloaked || !e.alive) continue;
+      if (e.revealT > 0) e.revealT -= dt;
+      let seen = e.revealT > 0;
+      if (!seen) {
+        for (const b of this.buildings) {
+          const r = b.def.tiers[b.tier].detect ?? 0;
+          if (r && Math.hypot(b.x - e.x, b.y - e.y) <= r) {
+            seen = true;
+            break;
+          }
+        }
+      }
+      if (!seen) {
+        for (const s of this.squads) {
+          if (s.stats.detect && !s.down && Math.hypot(s.x - e.x, s.y - e.y) <= s.stats.detect) {
+            seen = true;
+            break;
+          }
+        }
+      }
+      e.revealed = seen;
+    }
+  }
+
+  /** Sensor/detector coverage for the renderer. */
+  detectors(): { x: number; y: number; r: number }[] {
+    const out: { x: number; y: number; r: number }[] = [];
+    for (const b of this.buildings) {
+      const r = b.def.tiers[b.tier].detect ?? 0;
+      if (r) out.push({ x: b.x, y: b.y, r });
+    }
+    for (const s of this.squads) if (s.stats.detect) out.push({ x: s.x, y: s.y, r: s.stats.detect });
+    return out;
   }
 
   // ---------------------------------------------------------------- squads
@@ -959,6 +1039,7 @@ export class World {
       const dx = e.x - t.x, dy = e.y - t.y;
       if (Math.hypot(dx, dy) > f.range + e.def.radius) continue;
       if (Math.abs(angleDiff(Math.atan2(dy, dx), angle)) > half) continue;
+      if (e.def.flier) continue; // flames can't reach fliers
       this.damageEnemy(e, f.damage, 'fire', s, null);
       if (e.alive) {
         e.burnT = Math.max(e.burnT, f.burnTime);
@@ -978,7 +1059,7 @@ export class World {
       let best: Enemy | null = null;
       const near = this.hash.query(tu.x, tu.y, range + 20, this.near);
       for (const e of near) {
-        if (!e.alive) continue;
+        if (!this.targetable(e)) continue;
         if (Math.hypot(e.x - tu.x, e.y - tu.y) > range + e.def.radius) continue;
         if (!best || e.dist > best.dist) best = e;
       }
@@ -989,7 +1070,8 @@ export class World {
       if (tu.cooldown > 0 || Math.abs(diff) > 0.3) continue;
       tu.cooldown = 1 / w.rof;
       this.events.turretShot?.(s, tu, best.x, best.y);
-      this.damageEnemy(best, w.damage * s.stats.turretDamage, w.damageType, s, null);
+      const aa = best.def.flier && s.stats.antiAir ? Balance.antiAirBonus : 1;
+      this.damageEnemy(best, w.damage * s.stats.turretDamage * aa, w.damageType, s, null);
     }
   }
 
@@ -1007,7 +1089,9 @@ export class World {
   }
 
   private inArc(s: Squad, e: Enemy, range: number, half: number): number {
-    if (!e.alive) return -1;
+    if (!this.targetable(e)) return -1;
+    // Lobbed grenades can't hit fliers (rockets and bullets can).
+    if (e.def.flier && s.stats.projectile === 'shell') return -1;
     const dx = e.x - s.x, dy = e.y - s.y;
     const dSq = dx * dx + dy * dy;
     const reach = range + e.def.radius;
@@ -1089,6 +1173,7 @@ export class World {
     const near = this.hash.query(p.tx, p.ty, p.radius + 20, this.near);
     for (const e of near) {
       if (!e.alive) continue;
+      if (e.def.flier && p.kind !== 'rocket') continue;
       const d = Math.hypot(e.x - p.tx, e.y - p.ty) - e.def.radius * 0.5;
       if (d > p.radius) continue;
       const falloff = 1 - (1 - Balance.splashEdgeFactor) * Math.max(0, d / p.radius);
@@ -1153,6 +1238,7 @@ export class World {
   private damageEnemy(e: Enemy, amount: number, type: DamageType, source: Squad | null, st: SquadStats | null): void {
     if (!e.alive) return;
     let dmg = amount;
+    if (st?.antiAir && e.def.flier) dmg *= Balance.antiAirBonus;
     if (st && st.armoredMult !== 1 && e.def.armor >= 0.3) dmg *= st.armoredMult;
     if (e.markT > 0) dmg *= 1 + e.markMult;
     let remaining = dmg;
@@ -1172,7 +1258,8 @@ export class World {
       }
     }
     const pierce = Math.min(1, Balance.pierce[type] + (st?.pierceBonus ?? 0));
-    const dealt = remaining * (1 - e.def.armor * (1 - pierce));
+    const armor = Math.max(0, e.def.armor - e.armorMod);
+    const dealt = remaining * (1 - armor * (1 - pierce));
     e.hp -= dealt;
     this.events.enemyDamaged?.(e, shieldHit ? dmg : dealt, shieldHit && remaining === 0);
 
@@ -1192,6 +1279,16 @@ export class World {
       }
       this.events.enemyKilled?.(e, bounty);
       return;
+    }
+    const ph = e.def.phases;
+    if (ph && e.phaseIdx < ph.at.length && e.hp / e.maxHp < ph.at[e.phaseIdx]) {
+      e.phaseIdx++;
+      e.armorMod += ph.armorDrop;
+      e.speedMult *= ph.speedUp;
+      for (let i = 0; i < ph.spawn.count; i++) {
+        this.spawnEnemy(ph.spawn.enemy, e.path, e.wave, Math.max(0, e.dist - 10 - this.rng.next() * 40));
+      }
+      this.events.bossPhase?.(e, e.phaseIdx);
     }
     if (!e.berserk && e.def.berserkAt > 0 && e.hp / e.maxHp < e.def.berserkAt) {
       e.berserk = true;
@@ -1230,6 +1327,27 @@ export class World {
     return e.def.speed * e.speedMult * (e.berserk ? Balance.berserkSpeed : 1) * (e.slowT > 0 ? 1 - e.slowMult : 1);
   }
 
+  private unload(barge: Enemy): void {
+    barge.carrierState = 2;
+    // Nearest road to where the barge is hovering.
+    let road = this.map.paths[0];
+    let best = Infinity;
+    for (const p of this.map.paths) {
+      const d = p.distSqTo(barge.x, barge.y);
+      if (d < best) {
+        best = d;
+        road = p;
+      }
+    }
+    const along = road.distanceAt(barge.x, barge.y);
+    for (const t of barge.def.carrier!.troops) {
+      for (let i = 0; i < t.count; i++) {
+        this.spawnEnemy(t.enemy, road, barge.wave, Math.max(0, along + this.rng.range(-30, 30)));
+      }
+    }
+    this.events.bargeUnload?.(barge);
+  }
+
   private updateEnemy(e: Enemy, dt: number): void {
     if (!e.alive) return;
     e.prevX = e.x;
@@ -1259,7 +1377,50 @@ export class World {
     const dmgMult = e.berserk ? Balance.berserkDamage : 1;
     e.attackCd -= dt * (e.suppressT > 0 ? 1 - e.suppressMult : 1);
 
-    if (def.attack.kind === 'melee') {
+    // Tender: heal and recharge nearby aliens.
+    const heal = def.healAura;
+    if (heal) {
+      for (const o of this.hash.query(e.x, e.y, heal.radius, this.near)) {
+        if (o === e || !o.alive || Math.hypot(o.x - e.x, o.y - e.y) > heal.radius) continue;
+        const before = o.hp + o.shield;
+        o.hp = Math.min(o.maxHp, o.hp + heal.heal * dt);
+        if (o.maxShield > 0) o.shield = Math.min(o.maxShield, o.shield + heal.shield * dt);
+        if (o.hp + o.shield > before + 0.01 && this.rng.next() < dt * 2) this.events.healPulse?.(e, o);
+      }
+    }
+
+    // Boss stomp: hits every squad close by.
+    if (def.stomp) {
+      e.stompCd -= dt;
+      if (e.stompCd <= 0) {
+        let hitAny = false;
+        for (const q of this.squads) {
+          if (q.down || Math.hypot(q.x - e.x, q.y - e.y) > def.stomp.radius) continue;
+          hitAny = true;
+          this.damageSquad(q, def.stomp.damage * dmgMult);
+          this.damageSquad(q, def.stomp.damage * dmgMult);
+        }
+        if (hitAny) {
+          e.stompCd = 1 / def.stomp.rate;
+          this.events.stomp?.(e, def.stomp.radius);
+        } else e.stompCd = 0.3;
+      }
+    }
+
+    // Dropship: hover over the drop point and unload troops onto the nearest road.
+    if (def.carrier) {
+      if (e.carrierState === 0 && e.dist >= e.dropDist) {
+        e.carrierState = 1;
+        e.hoverT = def.carrier.hover;
+      }
+      if (e.carrierState === 1) {
+        e.hoverT -= dt;
+        if (e.hoverT <= 0) this.unload(e);
+        return; // hovering
+      }
+    }
+
+    if (def.attack.kind === 'melee' && !def.unblockable && def.attack.damage > 0) {
       const s = e.engaged;
       if (s && (s.down || s.removed || Math.hypot(s.x - e.x, s.y - e.y) > def.attack.range + 30)) {
         s.engagedBy = Math.max(0, s.engagedBy - 1);
@@ -1281,11 +1442,12 @@ export class World {
         if (e.attackCd <= 0) {
           e.attackCd = 1 / def.attack.rate;
           const victim = this.damageSquad(q, def.attack.damage * dmgMult);
+          if (def.cloaked) e.revealT = Balance.revealOnAttack;
           if (victim) this.events.enemyMelee?.(e, q, victim);
         }
         return; // held in place
       }
-    } else if (e.attackCd <= 0) {
+    } else if (def.attack.kind === 'ranged' && def.attack.damage > 0 && e.attackCd <= 0) {
       let best: Squad | null = null;
       let bestD = def.attack.range;
       for (const q of this.squads) {
@@ -1299,6 +1461,7 @@ export class World {
       if (best) {
         e.attackCd = 1 / def.attack.rate;
         const victim = this.damageSquad(best, def.attack.damage * dmgMult);
+        if (def.cloaked) e.revealT = Balance.revealOnAttack;
         if (victim) this.events.enemyShot?.(e, best, victim);
       } else {
         e.attackCd = 0.2; // look again soon
@@ -1322,4 +1485,6 @@ export class World {
 }
 
 /** Turret type re-export for the renderer. */
+export type { Enemy };
+
 export type { Turret };

@@ -240,14 +240,19 @@ export class TitleScene extends Phaser.Scene {
       .setDepth(100);
 
     // Big, finger-friendly buttons (well over the 48pt minimum).
-    const bw = 300, bh = 64;
+    const bw = 300, bh = 58;
     const bx = right - bw;
     const top = H * 0.16 + titleSize * 0.75 + 36;
-    const best = save.mission('outpost01')?.stars ?? 0;
-    this.menuButton(bx, top, bw, bh, 'DEPLOY', Palette.uiAmber, `Mission 1: Firebase Ridgeline  ·  Best ${'★'.repeat(best)}${'☆'.repeat(3 - best)}`, 'outpost01');
+    const stars = (id: string) => {
+      const n = save.mission(id)?.stars ?? 0;
+      return `${'★'.repeat(n)}${'☆'.repeat(3 - n)}`;
+    };
+    const step = bh + 40;
+    this.menuButton(bx, top, bw, bh, 'MISSION 1', Palette.uiAmber, `Firebase Ridgeline  ·  ${stars('outpost01')}`, 'outpost01');
+    this.menuButton(bx, top + step, bw, bh, 'MISSION 2', Palette.uiAmber, `Dustline Junction  ·  ${stars('outpost02')}`, 'outpost02');
     const runs = save.endlessRuns('endless01');
     const bestRun = runs[0];
-    this.menuButton(bx, top + bh + 46, bw, bh, 'ENDLESS', 0x7fd4e8,
+    this.menuButton(bx, top + step * 2, bw, bh, 'ENDLESS', 0x7fd4e8,
       bestRun ? `Survive as long as you can  ·  Best: wave ${bestRun.waves}` : 'Survive as long as you can', 'endless01');
 
     this.statusText = this.add

@@ -66,6 +66,8 @@ interface EnemyView {
   shieldFill: Img;
   mark: Img;
   stun: Img;
+  /** Healing-aura ring (Tenders) / tractor beam glow (dropships). */
+  aura: Img;
   flash: number;
   shieldFlash: number;
   burnFx: number;
@@ -162,13 +164,14 @@ export class WorldRenderer implements SimEvents {
     const s = this.scene;
     const v: EnemyView = {
       shadow: s.add.image(0, 0, 'fx.shadow').setDepth(Depth.shadow),
-      body: addArt(s, artId).setDepth(Depth.enemy).setScale(art(artId).scale * UNIT_DRAW_SCALE),
+      body: addArt(s, artId).setDepth(Depth.enemy).setScale(art(artId).scale * (artId === 'enemy.broodbarge' ? 1.1 : UNIT_DRAW_SCALE)),
       shield: s.add.image(0, 0, 'fx.shieldBubble').setBlendMode(Phaser.BlendModes.ADD).setDepth(Depth.shield),
       barBg: s.add.image(0, 0, 'ui.white').setOrigin(0, 0.5).setTint(0x000000).setAlpha(0.7).setDepth(Depth.bars),
       barFill: s.add.image(0, 0, 'ui.white').setOrigin(0, 0.5).setDepth(Depth.bars),
       shieldFill: s.add.image(0, 0, 'ui.white').setOrigin(0, 0.5).setTint(Palette.shield).setDepth(Depth.bars),
       mark: addArt(s, 'fx.mark').setDepth(Depth.bars).setScale(ART_SCALE * 0.9),
       stun: addArt(s, 'fx.stun').setDepth(Depth.bars),
+      aura: s.add.image(0, 0, 'fx.ring').setBlendMode(Phaser.BlendModes.ADD).setDepth(Depth.decal),
       flash: 0,
       shieldFlash: 0,
       burnFx: 0,
@@ -180,7 +183,7 @@ export class WorldRenderer implements SimEvents {
 
   private hideEnemyView(v: EnemyView): void {
     v.hidden = true;
-    for (const o of [v.body, v.shadow, v.shield, v.barBg, v.barFill, v.shieldFill, v.mark, v.stun]) o.setVisible(false);
+    for (const o of [v.body, v.shadow, v.shield, v.barBg, v.barFill, v.shieldFill, v.mark, v.stun, v.aura]) o.setVisible(false);
   }
 
   private makeTrooperView(id: string): TrooperView {
@@ -246,6 +249,7 @@ export class WorldRenderer implements SimEvents {
       g.fillStyle(0x7be08a, selected ? 0.08 : 0.04).fillCircle(s.x, s.y, aura.radius);
       g.lineStyle(1.5, 0x7be08a, selected ? 0.5 : 0.2).strokeCircle(s.x, s.y, aura.radius);
     }
+    if (s.stats.detect) g.lineStyle(1, 0x9a7aff, selected ? 0.5 : 0.15).strokeCircle(s.x, s.y, s.stats.detect);
     if (selected && s.turrets.length) {
       const tr = this.world.turretRange(s);
       g.lineStyle(1, Palette.uiAmber, 0.35);
@@ -337,6 +341,7 @@ export class WorldRenderer implements SimEvents {
     const b = v.b;
     if (v.glow) v.glow.setAlpha(0.18 + 0.06 * (b.tier + 1) + 0.05 * Math.sin(this.t * 3));
     if (b.def.id === 'reactor') v.body.setRotation(this.t * 0.15 * (b.tier + 1));
+    if (b.def.id === 'sensor') v.body.setRotation(this.t * 1.6);
     const selected = this.selected === b;
     const key = b.tier * 10 + (selected ? 1 : 0);
     if (key === v.tier) return;
@@ -345,6 +350,11 @@ export class WorldRenderer implements SimEvents {
     for (let i = 0; i <= b.tier; i++) {
       const cx = b.x - (b.tier * 9) / 2 + i * 9, cy = b.y + b.def.footprint + 10;
       g.fillStyle(Palette.uiAmber, 1).fillTriangle(cx - 3.5, cy + 2, cx, cy - 2, cx + 3.5, cy + 2);
+    }
+    const detect = b.def.tiers[b.tier].detect;
+    if (detect) {
+      g.lineStyle(selected ? 2 : 1, 0x9a7aff, selected ? 0.6 : 0.18).strokeCircle(b.x, b.y, detect);
+      if (selected) g.fillStyle(0x9a7aff, 0.06).fillCircle(b.x, b.y, detect);
     }
   }
 
@@ -437,9 +447,34 @@ export class WorldRenderer implements SimEvents {
     const r = e.def.radius;
     const a = art(e.def.art);
     const stunned = e.stunT > 0;
-    const wobble = stunned ? 0 : e.engaged ? Math.sin(this.t * 18 + e.id) * 0.25 : Math.sin(this.t * 10 + e.id) * 0.08;
-    v.body.setPosition(x, y).setRotation(e.heading + a.rotation + wobble);
-    v.shadow.setPosition(x + 3, y + 5).setDisplaySize(r * 3, r * 2.6);
+    const big = r > 20;
+    const wobble = stunned ? 0 : e.engaged ? Math.sin(this.t * 18 + e.id) * 0.25 : Math.sin(this.t * (big ? 3 : 10) + e.id) * (big ? 0.03 : 0.08);
+    const def = e.def;
+    if (def.flier) {
+      // Fliers: higher up, so the shadow sits further away; a gentle bob.
+      const bob = Math.sin(this.t * 2.4 + e.id) * 0.05;
+      const hover = e.carrierState === 1;
+      v.body.setPosition(x, y - 6).setRotation(e.heading + a.rotation + Math.sin(this.t * 1.7 + e.id) * 0.06);
+      v.body.setScale(a.scale * (big ? 1.1 : UNIT_DRAW_SCALE) * (1 + bob));
+      v.shadow.setPosition(x + 16, y + 26).setDisplaySize(r * 3.2, r * 2.4).setAlpha(0.45);
+      v.aura.setVisible(hover);
+      if (hover) {
+        v.aura.setPosition(x, y + 8).setTint(0xff6ae0).setAlpha(0.4 + 0.3 * Math.sin(this.t * 12)).setDisplaySize(r * 2.2, r * 2.2);
+        if (Math.random() < dt * 20) this.fx.dust.emitParticleAt(x + (Math.random() - 0.5) * r, y + 12, 1);
+      }
+    } else {
+      v.body.setPosition(x, y).setRotation(e.heading + a.rotation + wobble);
+      v.shadow.setPosition(x + 3, y + 5).setDisplaySize(r * 3, r * 2.6);
+    }
+    // Cloaked and unrevealed: just a faint shimmer, no bars.
+    const hidden = !!def.cloaked && !e.revealed;
+    v.body.setAlpha(hidden ? 0.1 + 0.08 * Math.sin(this.t * 9 + e.id) : 1);
+    v.shadow.setVisible(!hidden);
+    if (def.healAura) {
+      const pulse = (this.t * 0.8 + e.id * 0.13) % 1;
+      v.aura.setVisible(true).setPosition(x, y).setTint(0x9cff9c).setAlpha(0.35 * (1 - pulse))
+        .setDisplaySize(def.healAura.radius * 2 * (0.3 + 0.7 * pulse), def.healAura.radius * 2 * (0.3 + 0.7 * pulse));
+    }
 
     if (v.flash > 0) {
       v.flash -= dt;
@@ -472,7 +507,7 @@ export class WorldRenderer implements SimEvents {
         .setAlpha(0.25 + 0.45 * (e.shield / maxShield) + v.shieldFlash * 0.5 + Math.sin(this.t * 6 + e.id) * 0.05);
     } else v.shield.setVisible(false);
 
-    const hurt = e.hp < e.maxHp || (maxShield > 0 && e.shield < maxShield);
+    const hurt = !hidden && (e.hp < e.maxHp || (maxShield > 0 && e.shield < maxShield));
     const w = Math.max(18, r * 2.2);
     const by = y - r - 9;
     v.barBg.setVisible(hurt).setPosition(x - w / 2 - 1, by).setDisplaySize(w + 2, 5);
@@ -480,8 +515,8 @@ export class WorldRenderer implements SimEvents {
       .setTint(e.berserk ? 0xff4a3a : 0xe0475f);
     v.shieldFill.setVisible(hurt && maxShield > 0 && e.shield > 0).setPosition(x - w / 2, by - 4)
       .setDisplaySize(Math.max(0.01, w * (e.shield / Math.max(1, maxShield))), 2);
-    v.mark.setVisible(e.markT > 0).setPosition(x, y).setRotation(this.t * 2);
-    v.stun.setVisible(stunned).setPosition(x, by - 8).setRotation(Math.sin(this.t * 8) * 0.2);
+    v.mark.setVisible(!hidden && e.markT > 0).setPosition(x, y).setRotation(this.t * 2);
+    v.stun.setVisible(!hidden && stunned).setPosition(x, by - 8).setRotation(Math.sin(this.t * 8) * 0.2);
   }
 
   // ================================================================== sim events → juice
@@ -492,9 +527,48 @@ export class WorldRenderer implements SimEvents {
     v.hidden = false;
     v.flash = 0;
     v.shieldFlash = 0;
-    v.body.setVisible(true).setTintMode(Phaser.TintModes.MULTIPLY).setTint(0xffffff);
-    v.shadow.setVisible(true);
+    v.body.setVisible(true).setTintMode(Phaser.TintModes.MULTIPLY).setTint(0xffffff).setAlpha(1)
+      .setDepth(e.def.flier ? Depth.shield + 1 : e.def.radius > 20 ? Depth.enemy + 0.5 : Depth.enemy);
+    v.shadow.setVisible(true).setAlpha(1);
+    v.aura.setVisible(false);
     this.enemyViews.set(e, v);
+    if (e.def.id === 'colossus') {
+      this.onNotice?.('⚠ COLOSSUS STRIDER INBOUND');
+      this.fx.shake(0.004, 600);
+      sfx.roar();
+    }
+  }
+
+  bargeUnload(b: Enemy): void {
+    this.fx.ring(b.x, b.y + 8, 10, 70, 0xff6ae0, 0.5);
+    this.fx.light(b.x, b.y, 200, 0xff6ae0, 0.6, 0.4);
+    this.fx.dust.explode(18, b.x, b.y + 10);
+    this.onNotice?.('Brood Barge unloading!');
+    sfx.roar();
+  }
+
+  stomp(boss: Enemy, radius: number): void {
+    this.fx.ring(boss.x, boss.y, radius * 0.3, radius * 1.2, 0xd8c0a0, 0.4);
+    this.fx.dust.explode(26, boss.x, boss.y);
+    this.fx.debris(boss.x, boss.y, 6, 'fx.chunk', radius * 3, 1.2);
+    this.fx.decal('fx.scorch', boss.x, boss.y, ((radius * 1.4) / 64) * ART_SCALE, 0x8a7a60, 20, 0.35);
+    this.fx.shake(0.008, 260);
+    sfx.explosion();
+  }
+
+  bossPhase(boss: Enemy, phase: number): void {
+    this.fx.debris(boss.x, boss.y, 10, 'fx.plate', 220, 1.8);
+    this.fx.ring(boss.x, boss.y, 20, 140, 0xff4a3a, 0.5);
+    this.fx.light(boss.x, boss.y, 300, Palette.choirCore, 0.7, 0.5);
+    this.fx.shake(0.01, 400);
+    this.onNotice?.(phase === 1 ? 'Colossus armor cracking!' : 'COLOSSUS ENRAGED!');
+    sfx.roar();
+  }
+
+  healPulse(h: Enemy, t: Enemy): void {
+    if (!this.fx.high) return;
+    this.fx.tracer(h.x, h.y, t.x, t.y, false, 0x9cff9c, 30, 2, 500);
+    this.fx.flash('fx.mf.plasma', t.x, t.y, 0, 8 / 64, 16 / 64, 0.2, 0x9cff9c, 0.7, Depth.fx);
   }
 
   private releaseEnemy(e: Enemy): void {

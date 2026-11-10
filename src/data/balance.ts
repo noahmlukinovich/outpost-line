@@ -57,6 +57,11 @@ export const Balance = {
   /** Per veterancy rank: damage, fire-rate and HP multipliers (stack additively). */
   veterancyBonus: { damage: 0.08, rof: 0.05, hp: 0.08 },
 
+  /** Damage multiplier for 'antiAir' weapons (rockets, flak) against fliers. */
+  antiAirBonus: 2,
+  /** Seconds a cloaked enemy stays visible after it attacks. */
+  revealOnAttack: 1.5,
+
   /** Default position of auto-turrets relative to the squad (units, sideways). */
   turretSpacing: 38,
 

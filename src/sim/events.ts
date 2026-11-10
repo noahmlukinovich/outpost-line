@@ -37,4 +37,8 @@ export interface SimEvents {
   waveStarted?(index: number, earlyBonus: number): void;
   waveCleared?(index: number, bonus: number): void;
   gameOver?(won: boolean): void;
+  bargeUnload?(barge: Enemy): void;
+  stomp?(boss: Enemy, radius: number): void;
+  bossPhase?(boss: Enemy, phase: number): void;
+  healPulse?(healer: Enemy, target: Enemy): void;
 }

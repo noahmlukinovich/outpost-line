@@ -10,6 +10,7 @@ import { Palette } from './palette';
 import { SOLDIER_H, SOLDIER_ORIGIN, SOLDIER_W, SoldierLooks, drawSoldier } from './soldiers';
 import { depot, reactor, turret } from './structures';
 import { generateFxArt } from './fxArt';
+import { broodbarge, colossus, sensor, skyray, tender, veilstalker } from './choirArt';
 
 type G = Phaser.GameObjects.Graphics;
 
@@ -281,6 +282,12 @@ export function generatePlaceholderArt(scene: Phaser.Scene): void {
   bake(scene, 'unit.trooper', SOLDIER_W, SOLDIER_H, (g) => drawSoldier(g, SoldierLooks['unit.rifle']));
   ART_ORIGINS['unit.trooper'] = SOLDIER_ORIGIN;
   bake(scene, 'unit.turret', 32, 32, turret);
+  bake(scene, 'enemy.veilstalker', 36, 28, veilstalker);
+  bake(scene, 'enemy.skyray', 48, 40, skyray);
+  bake(scene, 'enemy.tender', 34, 34, tender);
+  bake(scene, 'enemy.broodbarge', 80, 56, broodbarge);
+  bake(scene, 'enemy.colossus', 100, 100, colossus);
+  bake(scene, 'bld.sensor', 32, 32, sensor);
   bake(scene, 'bld.depot', 64, 64, depot);
   bake(scene, 'bld.reactor', 64, 64, reactor);
   bake(scene, 'fx.mark', 24, 24, (g) => {

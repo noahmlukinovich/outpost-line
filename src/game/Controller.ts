@@ -221,6 +221,11 @@ export class Controller implements PointerTarget {
       const color = ok ? 0x7be08a : 0xff5a4a;
       g.lineStyle(2, color, 0.9).strokeCircle(x, y, b.footprint);
       g.fillStyle(color, 0.15).fillCircle(x, y, b.footprint);
+      const detect = b.tiers[0].detect;
+      if (detect) {
+        g.lineStyle(2, 0x9a7aff, 0.6).strokeCircle(x, y, detect);
+        g.fillStyle(0x9a7aff, 0.06).fillCircle(x, y, detect);
+      }
       this.ghostTroopers[0]?.setPosition(x, y).setTint(ok ? 0xffffff : 0xff9090);
       return;
     }

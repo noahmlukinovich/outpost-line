@@ -20,9 +20,11 @@ export function generateWave(index: number, seed: number): GeneratedWave {
   let budget = Endless.budget.base + Endless.budget.perWave * n + Endless.budget.quad * n * n;
   if (surge) budget *= Endless.surgeMult;
 
-  // Pick a theme; early waves are always swarms.
-  const theme = n <= 2 ? Endless.themes[0] : Endless.themes[Math.floor(rng.next() * Endless.themes.length)];
-  const allowed = Object.entries(theme.mix).filter(([id]) => n >= (Endless.unlockWave[id] ?? 1));
+  // Pick a theme whose enemies are unlocked by now; early waves are always swarms.
+  const usable = Endless.themes.filter((t) => Object.keys(t.mix).some((id) => id !== 'skitter' && n >= (Endless.unlockWave[id] ?? 1)));
+  const theme = n <= 2 || usable.length === 0 ? Endless.themes[0] : usable[Math.floor(rng.next() * usable.length)];
+  let allowed = Object.entries(theme.mix).filter(([id]) => n >= (Endless.unlockWave[id] ?? 1));
+  if (allowed.length === 0) allowed = [['skitter', 1]];
   const share = allowed.reduce((a, [, s]) => a + s, 0);
 
   // Cap the head-count; fold the excess budget into toughness instead.
@@ -46,10 +48,12 @@ export function generateWave(index: number, seed: number): GeneratedWave {
     }
     delay += 2 + rng.next() * 4;
   }
+  const boss = n % Endless.bossEvery === 0;
+  if (boss) groups.push({ enemy: 'colossus', count: n / Endless.bossEvery, interval: 8, delay: 4 });
   return {
     groups,
     clearBonus: Math.round(Endless.clearBonus.base + Endless.clearBonus.perWave * n),
-    theme: surge ? `SURGE: ${theme.name}` : theme.name,
+    theme: boss ? `BOSS: ${theme.name}` : surge ? `SURGE: ${theme.name}` : theme.name,
     surge,
     hpMult,
   };

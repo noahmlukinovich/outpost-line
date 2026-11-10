@@ -93,6 +93,24 @@ export class Path {
     return best;
   }
 
+  /** Distance along the path of the point closest to (x, y). */
+  distanceAt(x: number, y: number): number {
+    let best = Infinity, bestD = 0;
+    for (let i = 1; i < this.points.length; i++) {
+      const a = this.points[i - 1], b = this.points[i];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy;
+      let t = lenSq > 0 ? ((x - a.x) * dx + (y - a.y) * dy) / lenSq : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const d = (a.x + dx * t - x) ** 2 + (a.y + dy * t - y) ** 2;
+      if (d < best) {
+        best = d;
+        bestD = this.cumulative[i - 1] + Math.sqrt(lenSq) * t;
+      }
+    }
+    return bestD;
+  }
+
   /** The point on the path closest to (x, y). */
   closestPoint(x: number, y: number, out: Vec): Vec {
     let best = Infinity;

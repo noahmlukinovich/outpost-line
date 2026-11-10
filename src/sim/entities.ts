@@ -127,6 +127,21 @@ export interface Enemy {
   burnT: number;
   burnDps: number;
   burnSource: Squad | null;
+  // Cloak
+  /** Seconds the enemy stays visible after attacking. */
+  revealT: number;
+  /** Visible and targetable this tick (always true for non-cloaked). */
+  revealed: boolean;
+  // Dropship
+  /** 0 = flying in, 1 = hovering/unloading, 2 = unloaded. */
+  carrierState: number;
+  hoverT: number;
+  dropDist: number;
+  // Boss
+  phaseIdx: number;
+  /** Armor removed by boss phases. */
+  armorMod: number;
+  stompCd: number;
 }
 
 export interface Projectile {

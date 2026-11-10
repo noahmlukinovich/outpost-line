@@ -28,6 +28,17 @@ reloads by itself, so an update can't interrupt a mission.
 The tiny line of text at the bottom-left of the title screen shows the version, whether you're
 in the installed app or a browser tab, whether offline mode is ready, the screen size, and the FPS.
 
+**Mission 2: Dustline Junction (M3a):** two roads that merge, a flight route (dashed magenta
+arrows) and a dropship landing zone. New enemies:
+- **Veilstalker**: cloaked. Can't be targeted unless revealed by a **Sensor Pylon** (new building,
+  violet range circle) or a Spotter's Thermal Optics; it flickers into view briefly when it strikes.
+- **Skyray**: flier that ignores the road. Bullets reach it; **grenades and flames can't**. Rockets
+  and flak deal double. Aim some squads at the flight route!
+- **Tender**: heals and re-shields nearby aliens. Kill it first.
+- **Brood Barge**: dropship that hovers over the drop zone and unloads Skitters and Wardens.
+- **Colossus Strider (boss)**: can't be blocked, stomps squads, sheds armor and calls
+  reinforcements at 66% and 33% health (marks on its health bar).
+
 **Endless mode:** tap **ENDLESS** on the title screen. Waves never stop; each has a theme
 (Swarm, Shield line, Armored push, Combined assault), every 5th wave is a **surge**, and from
 wave 8 the Choir gets tougher every wave. Your top 5 runs (waves survived, kills) are saved on

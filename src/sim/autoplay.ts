@@ -9,7 +9,7 @@ import { World } from './World';
 import { getSpec } from '../data/specs';
 
 export type BuildStep =
-  | { place: string; x: number; y: number; tag: string }
+  | { place: string; x: number; y: number; tag: string; face?: [number, number] }
   | { upgrade: string }
   | { spec: string; tag: string }
   | { ability: string; tag: string };
@@ -29,6 +29,8 @@ export function autoplay(mission: MissionDef, order: BuildStep[], seed = 1, call
   const tags = new Map<string, Placeable>();
   const log: string[] = [];
   let i = 0;
+  const leaks: Record<string, number> = {};
+  w.events.enemyLeaked = (e) => (leaks[e.def.id] = (leaks[e.def.id] ?? 0) + 1);
   w.events.waveCleared = (idx, bonus) =>
     log.push(`wave ${idx + 1} cleared  +${bonus}  integrity ${w.integrity}/${w.maxIntegrity}  supplies ${Math.floor(w.supplies)}  power ${w.power}  t=${w.time.toFixed(0)}s`);
 
@@ -36,7 +38,7 @@ export function autoplay(mission: MissionDef, order: BuildStep[], seed = 1, call
     while (i < order.length) {
       const step = order[i];
       if ('place' in step) {
-        const p = w.place(step.place, step.x, step.y);
+        const p = w.place(step.place, step.x, step.y, step.face ? Math.atan2(step.face[1] - step.y, step.face[0] - step.x) : undefined);
         if (!p) {
           const reason = w.checkPlacement(step.place, step.x, step.y).reason;
           if (reason === 'Not enough supplies') return;
@@ -83,6 +85,7 @@ export function autoplay(mission: MissionDef, order: BuildStep[], seed = 1, call
     }
     w.step();
   }
+  if (Object.keys(leaks).length) log.push(`leaked: ${JSON.stringify(leaks)}`);
   if (i < order.length) {
     const st = order[i];
     const tg = 'tag' in st ? tags.get(st.tag) : undefined;
@@ -143,7 +146,13 @@ export const LazyOrder01: BuildStep[] = [
 
 /** Endless: the good mission-1 build, then keep expanding and upgrading. */
 export const EndlessOrder01: BuildStep[] = [
-  ...GoodOrder01,
+  ...GoodOrder01.slice(0, 20),
+  { place: 'heavy', x: 980, y: 300, tag: 'aa', face: [980, 420] },
+  { place: 'sensor', x: 690, y: 420, tag: 'sensor' },
+  { upgrade: 'aa' },
+  { upgrade: 'aa' },
+  { spec: 'rocket', tag: 'aa' },
+  ...GoodOrder01.slice(20),
   { place: 'depot', x: 1250, y: 650, tag: 'depot2' },
   { upgrade: 'depot2' },
   { upgrade: 'depot2' },
@@ -167,4 +176,56 @@ export const EndlessOrder01: BuildStep[] = [
   { ability: 'salvo', tag: 'gate' },
   { ability: 'surgery', tag: 'medic' },
   { ability: 'combatmedic', tag: 'medic' },
+];
+
+/** Mission 2: hold the junction, sensor for stalkers, rockets for air. */
+export const GoodOrder02: BuildStep[] = [
+  { place: 'rifle', x: 450, y: 470, tag: 'bunker' },
+  { place: 'heavy', x: 980, y: 560, tag: 'ruins' },
+  { place: 'rifle', x: 700, y: 330, tag: 'trench', face: [700, 430] },
+  { place: 'sensor', x: 520, y: 470, tag: 'sensor' },
+  { upgrade: 'bunker' },
+  { place: 'reactor', x: 150, y: 300, tag: 'reactor' },
+  { place: 'depot', x: 1360, y: 250, tag: 'depot' },
+  { upgrade: 'ruins' },
+  { place: 'heavy', x: 1220, y: 230, tag: 'north', face: [1150, 380] },
+  { upgrade: 'trench' },
+  { upgrade: 'ruins' },
+  { spec: 'gatling', tag: 'ruins' },
+  { upgrade: 'north' },
+  { upgrade: 'north' },
+  { spec: 'rocket', tag: 'north' },
+  { upgrade: 'depot' },
+  { place: 'sniper', x: 760, y: 620, tag: 'south' },
+  { upgrade: 'bunker' },
+  { spec: 'assault', tag: 'bunker' },
+  { upgrade: 'trench' },
+  { spec: 'marksman', tag: 'trench' },
+  { upgrade: 'south' },
+  { upgrade: 'south' },
+  { spec: 'spotter', tag: 'south' },
+  { place: 'engineer', x: 560, y: 260, tag: 'eng' },
+  { upgrade: 'reactor' },
+  { upgrade: 'reactor' },
+  { ability: 'tandem', tag: 'north' },
+  { ability: 'spinup', tag: 'ruins' },
+  { ability: 'incinerator', tag: 'bunker' },
+  { upgrade: 'eng' },
+  { upgrade: 'eng' },
+  { spec: 'turrets', tag: 'eng' },
+  { ability: 'flak', tag: 'eng' },
+  { ability: 'salvo', tag: 'north' },
+  { place: 'heavy', x: 1250, y: 680, tag: 'southeast', face: [1300, 480] },
+  { upgrade: 'southeast' },
+  { upgrade: 'southeast' },
+  { spec: 'rocket', tag: 'southeast' },
+  { ability: 'overwatch', tag: 'trench' },
+  { ability: 'marktarget', tag: 'south' },
+];
+export const MediumOrder02: BuildStep[] = GoodOrder02.slice(0, 14);
+export const LazyOrder02: BuildStep[] = [
+  { place: 'rifle', x: 450, y: 470, tag: 'a' },
+  { place: 'rifle', x: 980, y: 560, tag: 'b' },
+  { place: 'rifle', x: 700, y: 330, tag: 'c' },
+  { place: 'heavy', x: 200, y: 520, tag: 'd' },
 ];

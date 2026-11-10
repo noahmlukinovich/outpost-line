@@ -42,6 +42,7 @@ export class MapView {
     }
 
     this.drawRoad();
+    this.drawFlightRoutes();
     this.drawZones();
 
     // Cover points.
@@ -143,6 +144,31 @@ export class MapView {
         g.lineTo(p.x + c * 5, p.y + s * 5);
         g.lineTo(p.x - c * 7 + s * 9, p.y - s * 7 - c * 9);
         g.strokePath();
+      }
+    }
+  }
+
+  /** Flight routes as faint dashed magenta lines with arrows, and drop zones as hazard circles. */
+  private drawFlightRoutes(): void {
+    const g = this.scene.add.graphics().setDepth(Depth.decal);
+    const p = { x: 0, y: 0 };
+    for (const route of this.world.map.flights) {
+      for (let d = 0; d < route.length; d += 24) {
+        const h = route.sample(d, p);
+        g.lineStyle(2, 0xff6ae0, 0.18).lineBetween(p.x, p.y, p.x + Math.cos(h) * 12, p.y + Math.sin(h) * 12);
+      }
+      for (let d = 80; d < route.length - 40; d += 180) {
+        const h = route.sample(d, p);
+        const c = Math.cos(h), s = Math.sin(h);
+        g.lineStyle(2.5, 0xff6ae0, 0.3);
+        g.beginPath().moveTo(p.x - c * 8 - s * 8, p.y - s * 8 + c * 8).lineTo(p.x + c * 4, p.y + s * 4).lineTo(p.x - c * 8 + s * 8, p.y - s * 8 - c * 8).strokePath();
+      }
+    }
+    for (const d of this.world.map.drops) {
+      g.lineStyle(2, 0xff6ae0, 0.35).strokeCircle(d.x, d.y, 34);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        g.lineBetween(d.x + Math.cos(a) * 26, d.y + Math.sin(a) * 26, d.x + Math.cos(a) * 34, d.y + Math.sin(a) * 34);
       }
     }
   }
