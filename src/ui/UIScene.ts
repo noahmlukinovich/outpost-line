@@ -22,6 +22,8 @@ import type { Building, Squad } from '../sim/entities';
 import { specsOf } from '../sim/stats';
 import { HUD, type GameScene } from '../scenes/GameScene';
 import { ActionButton, Button, panelBg, setText, text, type Tappable } from './widgets';
+import { Powers } from '../data/powers';
+import type { PowerId } from '../data/types';
 
 interface CardDrag {
   pointerId: number;
@@ -70,6 +72,9 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private cards: Card[] = [];
   private cardDrag: CardDrag | null = null;
   private dragPos = { x: 0, y: 0 };
+
+  // Commander powers
+  private powerBtns: { id: PowerId; btn: Button; sweep: Phaser.GameObjects.Graphics; secs: Phaser.GameObjects.Text }[] = [];
 
   // Placement
   private okBtn!: Button;
@@ -133,6 +138,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.buttons = [];
     this.rects = [];
     this.cards = [];
+    this.powerBtns = [];
     this.actions = [];
     this.menuButtons = [];
     this.toggles = [];
@@ -145,6 +151,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.damageOverlay = this.add.image(0, 0, 'fx.vignette').setOrigin(0).setDisplaySize(this.W, this.H).setTint(0xff2020).setAlpha(0);
     this.buildTopBar();
     this.buildBuildBar();
+    this.buildPowers();
     this.buildPlacement();
     this.buildWave();
     this.buildPanel();
@@ -158,6 +165,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.buildEnd();
 
     this.gs.controller.onChange = () => this.onSelectionChange();
+    this.gs.controller.onError = (r) => this.toast(r);
     this.gs.view.onIntegrityHit = () => (this.damageFlash = 1);
     this.gs.view.onNotice = (t) => this.toast(t);
     const w = this.gs.world;
@@ -234,7 +242,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   private buildBuildBar(): void {
     const w = this.gs.world;
-    const cw = 88, ch = 84, gap = 8;
+    const cw = 80, ch = 84, gap = 6;
     const y = this.H - ch - 10 - this.inset.bottom;
     let x = 10 + this.inset.left;
     const ids = [...w.mission.units, ...w.mission.buildings];
@@ -244,9 +252,15 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       const name = isUnit ? getUnit(id).name : getBuilding(id).name;
       const cost = isUnit ? getUnit(id).tiers[0].cost : getBuilding(id).tiers[0].cost;
       const btn = this.addButton(new Button(this, x, y, cw, ch, '', 'card', '', 12));
-      const iconId = isUnit ? trooperArt({ def: getUnit(id), spec: null }, 0) : getBuilding(id).art;
+      const hull = isUnit ? getUnit(id).vehicleHull : undefined;
+      const iconId = hull ?? (isUnit ? trooperArt({ def: getUnit(id), spec: null }, 0) : getBuilding(id).art);
       const icon = addArt(this, iconId, cw / 2, 30);
-      if (isUnit) {
+      if (hull) {
+        icon.setRotation(-Math.PI / 2).setScale(icon.scale * 0.95);
+        const tur = addArt(this, getUnit(id).art, cw / 2, 30).setRotation(-Math.PI / 2);
+        tur.setScale(tur.scale * 0.95);
+        btn.container.add(tur);
+      } else if (isUnit) {
         icon.setRotation(-Math.PI / 2).setScale(icon.scale * 1.55);
       } else icon.setScale(icon.scale * 0.62);
       const label = text(this, cw / 2, 58, name.replace(' Squad', '').replace(' Weapons', '').replace(' Team', ''), 11, Palette.uiText, '700').setOrigin(0.5);
@@ -255,6 +269,48 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       this.cards.push({ btn, id, cost, isUnit, costText });
       x += cw + gap;
     });
+  }
+
+  private buildPowers(): void {
+    const ids = this.gs.world.powerIds;
+    const size = 60, gap = 8;
+    let x = this.W - 10 - this.inset.right - ids.length * (size + gap) + gap;
+    const y = this.H - size - 10 - this.inset.bottom;
+    const icons: Record<PowerId, string> = { orbital: 'icon.orbital', airstrike: 'fx.jet', emp: 'icon.emp', droppod: 'fx.pod' };
+    for (const id of ids) {
+      const btn = this.addButton(new Button(this, x, y, size, size, '', 'dark', '', 12));
+      const icon = addArt(this, icons[id], size / 2, size / 2 - 4);
+      icon.setScale(icon.scale * (id === 'airstrike' ? 0.9 : id === 'droppod' ? 1.6 : 1.3)).setRotation(id === 'airstrike' ? -Math.PI / 2 : 0);
+      const sweep = this.add.graphics();
+      const secs = text(this, size / 2, size - 11, '', 12, Palette.uiText, '800').setOrigin(0.5);
+      btn.container.add([icon, sweep, secs]);
+      btn.onTap = () => {
+        const w = this.gs.world;
+        if (w.powerCd[id] > 0) {
+          this.toast(`${Powers[id].name}: ready in ${Math.ceil(w.powerCd[id])}s`);
+          return;
+        }
+        this.gs.controller.beginPower(id);
+        if (this.gs.controller.power === id) this.toast(id === 'airstrike' ? 'Drag a line on the map for the bombing run (tap = along the road)' : `${Powers[id].name}: tap or drag on the map to aim`);
+      };
+      this.powerBtns.push({ id, btn, sweep, secs });
+      x += size + gap;
+    }
+  }
+
+  private updatePowers(): void {
+    const w = this.gs.world;
+    for (const p of this.powerBtns) {
+      const cd = w.powerCd[p.id];
+      const frac = cd / Powers[p.id].cooldown;
+      const g = p.sweep.clear();
+      if (cd > 0) {
+        g.fillStyle(0x000000, 0.6).slice(30, 30, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, frac), false).fillPath();
+        setText(p.secs, `${Math.ceil(cd)}s`);
+      } else setText(p.secs, w.isOver ? '' : 'READY');
+      p.secs.setColor(cd > 0 ? css(Palette.uiText) : css(Palette.fdcAccent));
+      p.btn.setActive(this.gs.controller.power === p.id);
+    }
   }
 
   private buildPlacement(): void {
@@ -662,6 +718,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       if (gs.router.edgePan(this.dragPos.x, this.dragPos.y, dt, HUD)) gs.moveGhostToScreen(this.dragPos.x, this.dragPos.y - 64);
     }
 
+    this.updatePowers();
     this.updatePlacementUi();
     this.updateWaveUi(dt);
     this.updatePanel(dt);
@@ -873,7 +930,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     const lines = [
       `${type} · ${Math.round(dps)} dmg/s${st.splash ? ' · splash' : ''} · range ${Math.round(w.rangeOf(s))}`,
       `Troopers ${alive}/${s.def.troopers} · ${Math.round(st.hp)} hp · blocks ${st.blockCap}`,
-      cover ? `In ${cover.name}: −${Math.round(cover.damageReduction * 100)}% damage taken` : 'No cover: drag the flag into some',
+      s.def.vehicleHull ? `Vehicle: −${Math.round(st.armor * 100)}% damage (armor), can't use cover` : cover ? `In ${cover.name}: −${Math.round(cover.damageReduction * 100)}% damage taken` : 'No cover: drag the flag into some',
       st.projectile === 'shell' ? "Grenades can't hit fliers" : st.antiAir ? 'Anti-air: double damage to fliers' : 'Can hit fliers',
     ];
     if (st.turretCount) lines.push(`${st.turretCount} turrets · ${Math.round((st.turretWeapon?.damage ?? 0) * st.turretDamage * (st.turretWeapon?.rof ?? 0))} dmg/s each`);

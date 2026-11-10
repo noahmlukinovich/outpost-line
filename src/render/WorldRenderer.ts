@@ -17,17 +17,23 @@ import { Depth } from './depth';
 import { Effects, FIRE_RAMP } from './Effects';
 import { MapView } from './MapView';
 import { WEAPON_POINTS, weaponOf } from '../assets/soldiers';
-import { TURRET_FX, WEAPON_FX, type WeaponFx } from './weaponFx';
+import { TURRET_FX, VEHICLE_FX, WEAPON_FX, type WeaponFx } from './weaponFx';
+import { VEHICLE_POINTS } from '../assets/vehicleArt';
+import { Powers } from '../data/powers';
 import { FLASH_ORIGIN } from '../assets/fxArt';
 
 /** Units are drawn a bit larger than their simulation size so they read well on small screens. */
 export const UNIT_DRAW_SCALE = 1.4;
+/** Vehicles are big already; a smaller boost keeps them inside their footprint. */
+export const VEHICLE_SCALE = 1.2;
 
 type Img = Phaser.GameObjects.Image;
 
 interface TrooperView {
   body: Img;
   shadow: Img;
+  /** Vehicles: the hull under the turret (`body`). */
+  hull?: Img;
   /** Art rotation offset (sprites drawn facing up instead of right, etc.). */
   rot: number;
 }
@@ -131,6 +137,20 @@ export class WorldRenderer implements SimEvents {
 
   /** Muzzle flash + glow + smoke + casing for a weapon, from a trooper. Returns the muzzle point. */
   private fireFx(s: Squad, t: Trooper, override?: WeaponFx): { x: number; y: number } {
+    const turretId = trooperArt(s, 0);
+    const vp = VEHICLE_POINTS[turretId];
+    if (vp) {
+      const style = VEHICLE_FX[turretId];
+      this.shotCount++;
+      const mz = vp.muzzles[this.shotCount % vp.muzzles.length];
+      const m = this.vehiclePoint(t, vp.pivot, mz, this.tmpP);
+      this.muzzleFlash(m.x, m.y, t.angle, style);
+      if (style.casing && this.shotCount % style.casingEvery === 0) {
+        const e = this.vehiclePoint(t, vp.pivot, vp.eject, this.tmpE);
+        this.fx.casing(e.x, e.y, t.angle, style.casing);
+      }
+      return m;
+    }
     const idx = s.troopers.indexOf(t);
     const kind = weaponOf(trooperArt(s, Math.max(0, idx)));
     const pts = WEAPON_POINTS[kind];
@@ -144,6 +164,14 @@ export class WorldRenderer implements SimEvents {
       if (kind === 'gatling' && this.shotCount % 3 === 0) this.fx.casing(e.x, e.y, t.angle, 'link');
     }
     return m;
+  }
+
+  private vehiclePoint(t: Trooper, pivot: [number, number], p: [number, number], out: { x: number; y: number }): { x: number; y: number } {
+    const fwd = (p[0] - pivot[0]) * VEHICLE_SCALE, lat = (p[1] - pivot[1]) * VEHICLE_SCALE;
+    const c = Math.cos(t.angle), s = Math.sin(t.angle);
+    out.x = t.x + c * fwd - s * lat;
+    out.y = t.y + s * fwd + c * lat;
+    return out;
   }
 
   private muzzleFlash(x: number, y: number, angle: number, style: WeaponFx): void {
@@ -198,9 +226,18 @@ export class WorldRenderer implements SimEvents {
 
   private makeSquadView(s: Squad): SquadView {
     const sc = this.scene;
+    const troopers = s.troopers.map((_, i) => this.makeTrooperView(trooperArt(s, i)));
+    const hullId = s.spec?.vehicleHull ?? s.def.vehicleHull;
+    if (hullId) {
+      const t = troopers[0];
+      t.body.setScale(art(trooperArt(s, 0)).scale * VEHICLE_SCALE).setDepth(Depth.trooper + 0.2);
+      t.hull = addArt(sc, hullId).setDepth(Depth.trooper);
+      t.hull.setScale(t.hull.scale * VEHICLE_SCALE);
+      t.shadow.setDisplaySize(70, 56);
+    }
     return {
       squad: s,
-      troopers: s.troopers.map((_, i) => this.makeTrooperView(trooperArt(s, i))),
+      troopers,
       turrets: [],
       arc: sc.add.graphics().setDepth(Depth.arc),
       bars: sc.add.graphics().setDepth(Depth.bars),
@@ -216,10 +253,15 @@ export class WorldRenderer implements SimEvents {
     const key = s.spec?.id ?? '';
     if (key !== v.artKey) {
       v.artKey = key;
+      const vehicle = !!(s.spec?.vehicleHull ?? s.def.vehicleHull);
       v.troopers.forEach((t, i) => {
         const r = art(trooperArt(s, i));
-        t.body.setTexture(r.key, r.frame).setOrigin(r.originX, r.originY).setScale(r.scale * UNIT_DRAW_SCALE);
+        t.body.setTexture(r.key, r.frame).setOrigin(r.originX, r.originY).setScale(r.scale * (vehicle ? VEHICLE_SCALE : UNIT_DRAW_SCALE));
         t.rot = r.rotation;
+        if (t.hull) {
+          const h = art(s.spec?.vehicleHull ?? s.def.vehicleHull!);
+          t.hull.setTexture(h.key, h.frame).setOrigin(h.originX, h.originY).setScale(h.scale * VEHICLE_SCALE);
+        }
       });
     }
     while (v.turrets.length < s.turrets.length) {
@@ -273,7 +315,7 @@ export class WorldRenderer implements SimEvents {
   private drawBars(v: SquadView): void {
     const s = v.squad;
     const max = s.stats.hp;
-    let key = `${s.tier}|${s.rank}|${s.spec?.id}|${s.down ? Math.ceil(s.downTimer * 4) : -1}|${s.x.toFixed(0)},${s.y.toFixed(0)}`;
+    let key = `${s.tier}|${s.rank}|${s.spec?.id}|${s.down ? Math.ceil(s.downTimer * 4) : -1}|${s.x.toFixed(0)},${s.y.toFixed(0)}|${Math.ceil(s.expires * 2)}`;
     for (const t of s.troopers) key += t.alive ? `|${Math.round((t.hp / max) * 8)}` : '|x';
     if (key === v.barsKey) return;
     v.barsKey = key;
@@ -295,6 +337,11 @@ export class WorldRenderer implements SimEvents {
         const f = t.hp / max;
         g.fillStyle(f > 0.5 ? 0x7be08a : f > 0.25 ? 0xf2c14a : 0xff5a4a, 1).fillRect(x, y, w * f, 3);
       }
+    }
+    if (s.expires > 0) {
+      const tw = n * (w + gap) - gap;
+      g.fillStyle(0x000000, 0.6).fillRect(x0 - 1, y + 5, tw + 2, 4);
+      g.fillStyle(Palette.fdcAccent, 1).fillRect(x0, y + 6, tw * Math.min(1, s.expires / (Powers.droppod.duration ?? 30)), 2);
     }
     // Tier chevrons (filled cyan diamond once specialized), then veterancy stars.
     const marks = s.tier + 1 + (s.spec ? 1 : 0);
@@ -433,6 +480,16 @@ export class WorldRenderer implements SimEvents {
 
   private updateTrooper(v: TrooperView, t: Trooper, s: Squad, alpha: number): void {
     const visible = t.alive && !s.down;
+    if (v.hull) {
+      // Vehicles leave a smoking wreck while "down" (being rebuilt).
+      const x = lerp(t.prevX, t.x, alpha), y = lerp(t.prevY, t.y, alpha);
+      v.hull.setPosition(x, y).setRotation(s.facing).setTint(visible ? 0xffffff : 0x3a3430);
+      v.shadow.setPosition(x + 5, y + 7).setVisible(true);
+      v.body.setVisible(visible).setPosition(x, y).setRotation(t.angle + v.rot);
+      if (!visible && Math.random() < 0.15) this.fx.puff('fx.smoke', x + (Math.random() - 0.5) * 16, y, 14, 30, 0, 0, 1.6, 0.4, 0x2e2b27, false, Depth.fx, 0.5, 18);
+      if (!visible && Math.random() < 0.05) this.fx.puff('fx.fireball', x, y, 8, 16, 0, 0, 0.5, 0.8, FIRE_RAMP, true, Depth.fx, 0.5, 20);
+      return;
+    }
     v.body.setVisible(visible);
     v.shadow.setVisible(visible);
     if (!visible) return;
@@ -583,6 +640,17 @@ export class WorldRenderer implements SimEvents {
 
   shot(s: Squad, t: Trooper, toX: number, toY: number, hit: boolean): void {
     const idx = s.troopers.indexOf(t);
+    const turretId = trooperArt(s, 0);
+    if (VEHICLE_FX[turretId]) {
+      const style = VEHICLE_FX[turretId];
+      const m = this.fireFx(s, t);
+      this.fx.tracer(m.x, m.y, toX, toY, false, style.tracerColor, style.tracerLen, style.tracerWidth, style.tracerSpeed);
+      if (hit) this.fx.sparks.explode(4, toX, toY);
+      else this.fx.groundHit(toX, toY);
+      if (turretId === 'veh.walker.turret') sfx.gatling();
+      else sfx.autocannon();
+      return;
+    }
     const kind = weaponOf(trooperArt(s, Math.max(0, idx)));
     const style = WEAPON_FX[kind];
     const m = this.fireFx(s, t);
@@ -630,7 +698,8 @@ export class WorldRenderer implements SimEvents {
       sfx.melee();
     } else {
       this.fireFx(s, t);
-      sfx.launcher();
+      if (VEHICLE_FX[trooperArt(s, 0)]) sfx.cannon();
+      else sfx.launcher();
     }
   }
 
@@ -803,8 +872,80 @@ export class WorldRenderer implements SimEvents {
       this.squadViews.delete(s);
     }
     this.fx.dust.explode(10, s.x, s.y);
-    this.fx.number(s.x, s.y - 20, `+${refund}`, Palette.uiAmber, true);
-    sfx.sell();
+    if (s.expires !== 0 || refund > 0) {
+      this.fx.number(s.x, s.y - 20, refund > 0 ? `+${refund}` : 'EXTRACTED', refund > 0 ? Palette.uiAmber : Palette.fdcAccent, true);
+    }
+    if (refund > 0) sfx.sell();
+  }
+
+  // ================================================================== commander powers
+
+  powerUsed(id: string, x: number, y: number, x2: number, y2: number, delay: number): void {
+    if (id === 'orbital') {
+      const r = Powers.orbital.radius;
+      this.fx.ring(x, y, r * 2, r * 0.6, 0xff3a3a, delay);
+      this.fx.ring(x, y, r * 1.2, r, 0xff3a3a, delay * 0.6);
+      this.fx.flash('fx.light', x, y, 0, 0.2, 0.6, delay, 0xff3030, 0.5, Depth.light);
+      sfx.lockOn();
+    } else if (id === 'airstrike') {
+      const dx = x2 - x, dy = y2 - y, len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const total = delay + (Powers.airstrike.bombs ?? 6) * 0.08 + 0.3;
+      // The jet's shadow sweeps in from off-screen, across the line and out the far side.
+      this.fx.mover('fx.jet', x - ux * 500, y - uy * 500, x2 + ux * 300, y2 + uy * 300, total, ART_SCALE * 2.2, 0x000000, 0.35, false, Depth.light);
+      for (let i = 0; i <= 8; i++) {
+        const k = i / 8;
+        this.fx.flash('fx.hexring', x + dx * k, y + dy * k, 0, ART_SCALE * 0.4, ART_SCALE * 0.6, delay, 0xff8a3a, 0.5, Depth.decal);
+      }
+      sfx.jet();
+    } else if (id === 'emp') {
+      this.fx.flash('fx.light', x, y, 0, 0.1, 0.5, delay, 0x6fc8ff, 0.7, Depth.light);
+      sfx.empCharge();
+    } else if (id === 'droppod') {
+      this.fx.mover('fx.pod', x - 80, y - 320, x, y, delay, ART_SCALE * 1.6, 0xffffff, 1, false, Depth.light + 1);
+      this.fx.flash('fx.shadow', x + 4, y + 6, 0, 0.3, 1.2, delay, 0x000000, 0.6, Depth.shadow);
+      this.fx.flash('fx.light', x, y, 0, 0.2, 0.5, delay, 0xff8a3a, 0.4, Depth.light);
+      sfx.podIncoming();
+    }
+  }
+
+  orbitalImpact(x: number, y: number, r: number): void {
+    this.fx.flash('fx.light', x, y, 0, (r * 6) / 256, (r * 8) / 256, 0.35, 0xffffff, 1, Depth.light);
+    this.fx.flash('fx.mf.plasma', x, y, 0, (r * 1.6) / 64, (r * 2.4) / 64, 0.4, 0xff6060, 1, Depth.light);
+    this.fx.explosion(x, y, r * 1.2, true);
+    this.fx.ring(x, y, r * 0.5, r * 2.4, 0xffc0a0, 0.45);
+    this.fx.embers.explode(40, x, y);
+    this.fx.decal('fx.scorch', x, y, ((r * 2.2) / 64) * ART_SCALE, 0xffffff, 40, 0.5);
+    this.fx.shake(0.016, 500);
+    sfx.orbital();
+  }
+
+  bomb(x: number, y: number, r: number): void {
+    this.fx.explosion(x, y, r, false);
+    this.fx.shake(0.004, 120);
+    sfx.explosion();
+  }
+
+  emp(x: number, y: number, r: number): void {
+    this.fx.ring(x, y, 10, r * 1.1, 0x6fc8ff, 0.5);
+    this.fx.ring(x, y, 10, r * 0.7, 0xffffff, 0.3);
+    this.fx.light(x, y, r * 4, 0x6fc8ff, 0.7, 0.4);
+    this.fx.shards.explode(30, x, y);
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, d = r * (0.3 + Math.random() * 0.7);
+      this.fx.tracer(x, y, x + Math.cos(a) * d, y + Math.sin(a) * d, false, 0x9fe8ff, d, 2, 2500);
+    }
+    this.fx.shake(0.006, 250);
+    sfx.emp();
+  }
+
+  podLanded(s: Squad): void {
+    this.fx.explosion(s.x, s.y, 30, false);
+    this.fx.ring(s.x, s.y, 10, 70, Palette.fdcAccent, 0.4);
+    this.fx.dust.explode(20, s.x, s.y);
+    this.fx.number(s.x, s.y - 30, 'REINFORCEMENTS', Palette.fdcAccent, true);
+    this.fx.shake(0.006, 200);
+    sfx.place();
   }
 
   buildingPlaced(b: Building): void {

@@ -179,6 +179,14 @@ export function generateFxArt(scene: Phaser.Scene): void {
     g.fillStyle(0x15140f, 0.7).fillCircle(3, 3, 2.2);
     g.fillStyle(0x15140f, 0.35).fillCircle(3, 3, 3);
   });
+  bake('icon.orbital', 24, 24, (g) => {
+    g.lineStyle(2, 0xff5a3a, 1).strokeCircle(12, 12, 8);
+    g.lineBetween(12, 1, 12, 7).lineBetween(12, 17, 12, 23).lineBetween(1, 12, 7, 12).lineBetween(17, 12, 23, 12);
+    g.fillStyle(0xffffff, 1).fillCircle(12, 12, 2.4);
+  });
+  bake('icon.emp', 24, 24, (g) => {
+    g.fillStyle(0x6fc8ff, 1).fillPoints([[14, 1], [5, 13], [11, 13], [9, 23], [19, 9], [13, 9], [16, 1]].map(([x, y]) => new Phaser.Math.Vector2(x, y)), true);
+  });
   bake('fx.hexring', 32, 32, (g) => {
     const pts: Phaser.Math.Vector2[] = [];
     for (let i = 0; i < 6; i++) pts.push(new Phaser.Math.Vector2(16 + Math.cos((i / 6) * Math.PI * 2) * 13, 16 + Math.sin((i / 6) * Math.PI * 2) * 13));

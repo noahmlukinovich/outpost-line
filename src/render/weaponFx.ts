@@ -45,3 +45,10 @@ export const WEAPON_FX: Record<WeaponKind, WeaponFx> = {
 
 /** Auto-turrets. */
 export const TURRET_FX: WeaponFx = { ...WEAPON_FX.carbine, flashLen: 18, glow: 55, smoke: 0, casingEvery: 2 };
+
+/** Vehicle weapons, keyed by turret art ID. */
+export const VEHICLE_FX: Record<string, WeaponFx> = {
+  'veh.car.turret': { flash: CONE, flashLen: 30, flashTint: 0xffd090, glow: 110, glowColor: 0xffb060, smoke: 2, casing: 'big', casingEvery: 1, tracerColor: 0xffc070, tracerLen: 50, tracerWidth: 2.6, tracerSpeed: 2200, shake: 0 },
+  'veh.tank.turret': { flash: ['fx.mf.brake'], flashLen: 80, flashTint: 0xffe0b0, glow: 260, glowColor: 0xffb060, smoke: 10, casing: null, casingEvery: 1, tracerColor: 0xffffff, tracerLen: 0, tracerWidth: 0, tracerSpeed: 0, shake: 0.006 },
+  'veh.walker.turret': { flash: CONE, flashLen: 22, flashTint: 0xffe8c0, glow: 70, glowColor: 0xffd090, smoke: 0, casing: 'small', casingEvery: 2, tracerColor: 0xffe0a0, tracerLen: 40, tracerWidth: 1.8, tracerSpeed: 2600, shake: 0 },
+};

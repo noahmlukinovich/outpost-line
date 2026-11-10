@@ -39,6 +39,19 @@ arrows) and a dropship landing zone. New enemies:
 - **Colossus Strider (boss)**: can't be blocked, stomps squads, sheds armor and calls
   reinforcements at 66% and 33% health (marks on its health bar).
 
+**Vehicles & commander powers (M3b):**
+- **Armored Car** (card, needs Tech 2, uses 2 Command Cap): tough AP autocannon, can't use cover,
+  becomes a smoking wreck when destroyed and is rebuilt. At tier III (Tech 3) it becomes a
+  **Siege Tank** (long-range artillery, can't hit fliers) or an **Anti-Air Walker** (flak, double
+  damage to fliers and dropships).
+- **Commander powers** (round buttons, bottom right; cooldowns shown as a sweep). Tap a power,
+  then tap or drag on the map to aim:
+  - **Orbital Strike**: lock-on, then a huge beam (hits fliers too).
+  - **Airstrike**: drag a line; bombs walk along it (a tap bombs along the nearest road).
+  - **EMP**: stuns (big enemies longer), strips shields, reveals cloaked enemies.
+  - **Drop Pods**: a tier II Rifle Squad lands for 30 s, ignores Command Cap, can land on the road.
+  Tune them in `src/data/powers.ts`.
+
 **Endless mode:** tap **ENDLESS** on the title screen. Waves never stop; each has a theme
 (Swarm, Shield line, Armored push, Combined assault), every 5th wave is a **surge**, and from
 wave 8 the Choir gets tougher every wave. Your top 5 runs (waves survived, kills) are saved on

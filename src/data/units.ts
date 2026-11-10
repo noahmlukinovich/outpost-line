@@ -105,6 +105,32 @@ export const Units = {
         weapon: { damage: 5, rof: 1.8, range: 130, damageType: 'ballistic', accuracy: 0.85 } },
     ],
   },
+
+  motorpool: {
+    id: 'motorpool',
+    name: 'Armored Car',
+    role: 'Motor Pool vehicle: tough, armored autocannon. Can\'t use cover.',
+    troopers: 1,
+    crewServed: true,
+    arcDeg: 200,
+    footprint: 30,
+    leash: 90,
+    blockCap: 2,
+    cap: 2,
+    tech: 2,
+    art: 'veh.car.turret',
+    vehicleHull: 'veh.car.hull',
+    specs: ['siege', 'aawalker'],
+    effects: [{ kind: 'armor', reduction: 0.35 }],
+    tiers: [
+      { cost: 190, trooperHp: 260, tech: 2, blurb: 'Armored car with an AP autocannon.',
+        weapon: { damage: 16, rof: 1.6, range: 190, damageType: 'ap', accuracy: 0.9 } },
+      { cost: 120, trooperHp: 330, tech: 2, blurb: 'Heavier plating, faster autocannon.',
+        weapon: { damage: 20, rof: 1.9, range: 200, damageType: 'ap', accuracy: 0.92 } },
+      { cost: 160, trooperHp: 420, tech: 3, blurb: 'Twin-linked autocannon.',
+        weapon: { damage: 24, rof: 2.4, range: 210, damageType: 'ap', accuracy: 0.92 } },
+    ],
+  },
 } satisfies Record<string, UnitDef>;
 
 export type UnitId = keyof typeof Units;

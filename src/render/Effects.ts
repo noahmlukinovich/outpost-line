@@ -211,6 +211,18 @@ export class Effects {
     this.active.push(f);
   }
 
+  /** A sprite gliding from (x0, y0) to (x1, y1) over `life` seconds (jet shadows, falling pods). */
+  mover(tex: string, x0: number, y0: number, x1: number, y1: number, life: number, scale: number, tint: number, alpha: number, additive = false, depth: number = Depth.light): void {
+    const f = this.take();
+    if (!f) return;
+    f.kind = Kind.Tracer;
+    f.x0 = x0; f.y0 = y0; f.x1 = x1; f.y1 = y1;
+    f.life = f.max = life;
+    f.img.setTexture(tex).setScale(scale).setOrigin(0.5).setRotation(Math.atan2(y1 - y0, x1 - x0)).setPosition(x0, y0)
+      .setTint(tint).setAlpha(alpha).setBlendMode(additive ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL).setDepth(depth);
+    this.active.push(f);
+  }
+
   light(x: number, y: number, size: number, tint: number, alpha: number, life: number): void {
     const s = size / 256; // fx.light is 256px
     this.flash('fx.light', x, y, 0, s, s * 1.3, life, tint, alpha, Depth.light);

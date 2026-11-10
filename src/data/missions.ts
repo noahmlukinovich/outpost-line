@@ -27,7 +27,7 @@ export const Missions: MissionDef[] = [
     startingSupplies: 460,
     integrity: 20,
     commandCap: 9,
-    units: ['rifle', 'heavy', 'sniper', 'engineer'],
+    units: ['rifle', 'heavy', 'sniper', 'engineer', 'motorpool'],
     buildings: ['depot', 'reactor', 'sensor'],
   },
   {
@@ -39,7 +39,7 @@ export const Missions: MissionDef[] = [
     startingSupplies: 360,
     integrity: 20,
     commandCap: 10,
-    units: ['rifle', 'heavy', 'sniper', 'engineer'],
+    units: ['rifle', 'heavy', 'sniper', 'engineer', 'motorpool'],
     buildings: ['depot', 'reactor', 'sensor'],
     endless: true,
   },

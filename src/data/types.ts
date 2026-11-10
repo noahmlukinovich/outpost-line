@@ -110,6 +110,8 @@ export interface SpecDef {
   blockCap?: number;
   art?: string;
   leadArt?: string;
+  /** Vehicles: replaces the hull art. */
+  vehicleHull?: string;
   /** Always-on effects of the specialization itself. */
   effects?: Effect[];
   /** 2–3 purchasable abilities. */
@@ -141,6 +143,10 @@ export interface UnitDef {
   specs: [string, string];
   /** Always-on effects of the base unit (e.g. engineers' small heal aura). */
   effects?: Effect[];
+  /** Tech level needed to place this unit at all (vehicles). */
+  tech?: Tech;
+  /** Vehicles: hull art (the turret is `art`). Vehicles can't use cover. */
+  vehicleHull?: string;
 }
 
 export interface BuildingTier {
@@ -257,6 +263,35 @@ export interface MissionDef {
   units: string[];
   /** Building ids the player may build in this mission. */
   buildings: string[];
+  /** Commander powers available (default: all). */
+  powers?: string[];
   /** Endless survival: waves are generated forever (the `waves` list is ignored). */
   endless?: boolean;
+}
+
+export type PowerId = 'orbital' | 'airstrike' | 'emp' | 'droppod';
+
+export interface PowerDef {
+  id: PowerId;
+  name: string;
+  desc: string;
+  /** Seconds between uses. */
+  cooldown: number;
+  /** Seconds until first use at mission start. */
+  initialCooldown: number;
+  /** Seconds from activation to impact (targeting / travel time). */
+  delay: number;
+  radius: number;
+  damage: number;
+  /** Airstrike: line length and number of bombs. */
+  length?: number;
+  bombs?: number;
+  /** EMP: stun seconds for normal / large (vehicle, boss, dropship) enemies; reveal time. */
+  stun?: number;
+  stunLarge?: number;
+  reveal?: number;
+  /** Drop pod: unit, tier and lifetime. */
+  unit?: string;
+  tier?: number;
+  duration?: number;
 }

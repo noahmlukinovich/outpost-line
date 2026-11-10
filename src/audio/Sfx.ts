@@ -120,6 +120,15 @@ export class Sfx {
   gatling(): void { if (this.ok('gatling', 35)) this.burst(1500, 1.1, 0.06, 0.35, 0.5); }
   shotgun(): void { if (this.ok('shotgun', 60)) { this.burst(900, 0.7, 0.18, 0.6, 0.35); } }
 
+  autocannon(): void { if (this.ok('autocannon', 70)) { this.burst(700, 0.8, 0.14, 0.55, 0.4); this.tone('sine', 140, 70, 0.1, 0.2); } }
+  cannon(): void { if (this.ok('cannon', 200)) { this.burst(180, 0.6, 0.7, 1, 0.25); this.tone('sine', 80, 30, 0.5, 0.6); } }
+  lockOn(): void { if (this.ok('lockOn', 300)) [0, 0.18, 0.36, 0.54].forEach((d) => this.tone('square', 1200, 1200, 0.07, 0.08, d)); }
+  orbital(): void { if (this.ok('orbital', 300)) { this.burst(120, 0.5, 1.4, 1, 0.2, 'lowpass'); this.tone('sawtooth', 300, 40, 1.2, 0.2); } }
+  jet(): void { if (this.ok('jet', 500)) this.burst(1400, 0.4, 1.8, 0.35, 0.25, 'lowpass'); }
+  emp(): void { if (this.ok('emp', 300)) { this.tone('sine', 1800, 60, 0.6, 0.25); this.burst(6000, 0.6, 0.4, 0.3, 0.3, 'highpass'); } }
+  empCharge(): void { if (this.ok('empCharge', 300)) this.tone('sine', 200, 1600, 0.4, 0.12); }
+  podIncoming(): void { if (this.ok('podIncoming', 300)) this.tone('sawtooth', 900, 200, 1.3, 0.08); }
+
   click(): void { if (this.ok('click', 30)) this.tone('square', 880, 440, 0.08, 0.12); }
 }
 

@@ -21,6 +21,8 @@ import { SpatialHash } from './SpatialHash';
 import { computeStats, type SquadStats } from './stats';
 import { endlessScale, generateWave, type GeneratedWave } from './director';
 import { Endless } from '../data/endless';
+import { POWER_ORDER, Powers } from '../data/powers';
+import type { PowerDef, PowerId } from '../data/types';
 import type { WaveDef } from '../data/types';
 
 export type GameState = 'prep' | 'running' | 'won' | 'lost';
@@ -88,6 +90,10 @@ export class World {
   private readonly tmp: Vec = { x: 0, y: 0 };
   private lastTech: Tech = 1;
 
+  /** Seconds until each commander power is ready. */
+  readonly powerCd = {} as Record<PowerId, number>;
+  private pending: { def: PowerDef; x: number; y: number; x2: number; y2: number; t: number; bombs: number }[] = [];
+
   constructor(mission: MissionDef, seed = 1) {
     this.mission = mission;
     this.map = loadTiledMap(mission.mapJson);
@@ -103,6 +109,131 @@ export class World {
     }
     for (const u of mission.units) for (const s of getUnit(u).specs) getSpec(s);
     for (const b of mission.buildings) getBuilding(b);
+    for (const id of this.powerIds) this.powerCd[id] = Powers[id].initialCooldown;
+  }
+
+  /** Commander powers available in this mission. */
+  get powerIds(): PowerId[] {
+    return (this.mission.powers as PowerId[] | undefined) ?? POWER_ORDER;
+  }
+
+  /** Why a power can't be used at (x, y) right now ('' = it can). */
+  checkPower(id: PowerId, x: number, y: number): string {
+    if (this.isOver) return 'Mission over';
+    if ((this.powerCd[id] ?? 0) > 0) return `${Powers[id].name} recharging (${Math.ceil(this.powerCd[id])}s)`;
+    if (id === 'droppod') {
+      const def = getUnit(Powers.droppod.unit!);
+      if (!isTerrainBuildable(this.map, x, y, def.footprint * 0.5)) return 'Pods need open ground';
+      for (const q of this.squads) if (Math.hypot(q.x - x, q.y - y) < q.def.footprint + def.footprint) return 'Too close to a squad';
+      for (const b of this.buildings) if (Math.hypot(b.x - x, b.y - y) < b.def.footprint + def.footprint) return 'Too close to a building';
+    }
+    return '';
+  }
+
+  /** Use a commander power. Airstrike uses (x, y) → (x2, y2) as its line. */
+  usePower(id: PowerId, x: number, y: number, x2 = x, y2 = y): boolean {
+    if (this.checkPower(id, x, y)) return false;
+    const def = Powers[id];
+    if (id === 'airstrike') {
+      // Normalize to a fixed-length run centered on the drag (or along the road for a tap).
+      let dx = x2 - x, dy = y2 - y;
+      if (Math.hypot(dx, dy) < 20) {
+        let best = Infinity, heading = 0;
+        for (const p of this.map.paths) {
+          const d = p.distanceAt(x, y);
+          p.sample(d, this.tmp);
+          const off = Math.hypot(this.tmp.x - x, this.tmp.y - y);
+          if (off < best) {
+            best = off;
+            heading = p.sample(d, this.tmp);
+          }
+        }
+        dx = Math.cos(heading);
+        dy = Math.sin(heading);
+      }
+      const len = Math.hypot(dx, dy) || 1;
+      const L = def.length ?? 300;
+      const cx = (x + x2) / 2, cy = (y + y2) / 2;
+      x = cx - (dx / len) * L / 2;
+      y = cy - (dy / len) * L / 2;
+      x2 = cx + (dx / len) * L / 2;
+      y2 = cy + (dy / len) * L / 2;
+    }
+    this.powerCd[id] = def.cooldown;
+    this.pending.push({ def, x, y, x2, y2, t: def.delay, bombs: 0 });
+    this.events.powerUsed?.(id, x, y, x2, y2, def.delay);
+    return true;
+  }
+
+  private updatePowers(dt: number): void {
+    if (this.state === 'running') for (const id of this.powerIds) this.powerCd[id] = Math.max(0, this.powerCd[id] - dt);
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const p = this.pending[i];
+      p.t -= dt;
+      const def = p.def;
+      if (def.id === 'airstrike') {
+        // Bombs walk down the line, one every 80 ms.
+        const n = def.bombs ?? 6;
+        while (p.bombs < n && p.t <= -p.bombs * 0.08) {
+          const k = n === 1 ? 0.5 : p.bombs / (n - 1);
+          const bx = p.x + (p.x2 - p.x) * k, by = p.y + (p.y2 - p.y) * k;
+          this.blast(bx, by, def.radius, def.damage, false);
+          this.events.bomb?.(bx, by, def.radius);
+          p.bombs++;
+        }
+        if (p.bombs >= n) this.pending.splice(i, 1);
+        continue;
+      }
+      if (p.t > 0) continue;
+      this.pending.splice(i, 1);
+      if (def.id === 'orbital') {
+        this.blast(p.x, p.y, def.radius, def.damage, true);
+        this.events.orbitalImpact?.(p.x, p.y, def.radius);
+      } else if (def.id === 'emp') {
+        for (const e of this.enemies) {
+          if (!e.alive || Math.hypot(e.x - p.x, e.y - p.y) > def.radius + e.def.radius) continue;
+          const large = e.def.radius > 20 || !!e.def.phases || !!e.def.carrier;
+          e.stunT = Math.max(e.stunT, large ? def.stunLarge ?? 3 : def.stun ?? 1);
+          if (e.shield > 0) {
+            e.shield = 0;
+            e.shieldTimer = 0;
+            this.events.shieldBroken?.(e);
+          }
+          if (e.def.cloaked) {
+            e.revealT = Math.max(e.revealT, def.reveal ?? 5);
+            e.revealed = true;
+          }
+        }
+        this.events.emp?.(p.x, p.y, def.radius);
+      } else if (def.id === 'droppod') {
+        if (this.checkPowerSpot(p.x, p.y)) {
+          const unit = getUnit(def.unit!);
+          const s = this.createSquad(unit, p.x, p.y, this.suggestFacing(p.x, p.y), 0, def.duration ?? 30);
+          s.tier = def.tier ?? 0;
+          this.refreshStats(s);
+          for (const t of s.troopers) t.hp = s.stats.hp;
+          this.blast(p.x, p.y, def.radius, def.damage, false);
+          this.events.podLanded?.(s);
+        } else {
+          this.powerCd.droppod = 3; // spot got taken while the pod was falling: quick retry
+        }
+      }
+    }
+  }
+
+  private checkPowerSpot(x: number, y: number): boolean {
+    for (const q of this.squads) if (Math.hypot(q.x - x, q.y - y) < q.def.footprint * 2) return false;
+    return true;
+  }
+
+  /** Area damage from commander powers. `air` = also hits fliers. */
+  private blast(x: number, y: number, r: number, damage: number, air: boolean): void {
+    for (const e of this.hash.query(x, y, r + 40, this.near)) {
+      if (!e.alive || (e.def.flier && !air)) continue;
+      const d = Math.hypot(e.x - x, e.y - y) - e.def.radius * 0.5;
+      if (d > r) continue;
+      this.damageEnemy(e, damage * (1 - 0.4 * Math.max(0, d / r)), 'explosive', null, null);
+    }
   }
 
   get endless(): boolean {
@@ -148,7 +279,7 @@ export class World {
 
   get capUsed(): number {
     let c = 0;
-    for (const s of this.squads) c += s.def.cap;
+    for (const s of this.squads) if (!s.expires) c += s.def.cap;
     return c;
   }
 
@@ -186,8 +317,8 @@ export class World {
   checkPlacement(id: string, x: number, y: number): PlacementCheck {
     const info = this.placeInfo(id);
     const res: PlacementCheck = { ok: false, x, y, cover: null, reason: '' };
-    if (info.isUnit) {
-      // Snap onto a free cover point if close enough.
+    if (info.isUnit && !getUnit(id).vehicleHull) {
+      // Snap onto a free cover point if close enough (vehicles can't use cover).
       let best: number = Balance.coverSnapDistance;
       for (const c of this.map.cover) {
         if (this.coverOccupant.has(c.index)) continue;
@@ -232,6 +363,11 @@ export class World {
         res.reason = 'Overlaps a building';
         return res;
       }
+    }
+    const unitTech = info.isUnit ? getUnit(id).tech : undefined;
+    if (unitTech && unitTech > this.tech) {
+      res.reason = `Needs Tech ${unitTech} (build Reactors)`;
+      return res;
     }
     if (info.isUnit && this.capUsed + getUnit(id).cap > this.capMax) {
       res.reason = `Command Cap full (${this.capUsed}/${this.capMax})`;
@@ -291,7 +427,15 @@ export class World {
     const def = getUnit(unitId);
     const cost = def.tiers[0].cost;
     this.supplies -= cost;
-    const f = facing ?? this.suggestFacing(check.x, check.y);
+    const squad = this.createSquad(def, check.x, check.y, facing ?? this.suggestFacing(check.x, check.y), cost, 0);
+    this.events.squadPlaced?.(squad);
+    return squad;
+  }
+
+  /** Build a squad entity (no cost/validation). `expires` > 0 makes it temporary (drop pods). */
+  private createSquad(def: UnitDef, x: number, y: number, f: number, invested: number, expires: number): Squad {
+    const check = { x, y };
+    const cost = invested;
     const squad: Squad = {
       kind: 'squad',
       id: this.nextId++,
@@ -331,6 +475,7 @@ export class World {
       removed: false,
       auraRof: 1,
       auraReinforce: 1,
+      expires,
     };
     for (let i = 0; i < def.troopers; i++) {
       const t: Trooper = { alive: true, hp: squad.stats.hp, x: 0, y: 0, prevX: 0, prevY: 0, angle: f, cooldown: this.rng.range(0, 0.6) };
@@ -339,7 +484,6 @@ export class World {
     this.layoutTroopers(squad, true);
     this.updateCover(squad);
     this.squads.push(squad);
-    this.events.squadPlaced?.(squad);
     return squad;
   }
 
@@ -443,9 +587,7 @@ export class World {
     this.supplies += refund;
     p.removed = true;
     if (p.kind === 'squad') {
-      this.releaseEngaged(p);
-      if (p.cover) this.coverOccupant.delete(p.cover.index);
-      this.squads.splice(this.squads.indexOf(p), 1);
+      this.removeSquad(p);
       this.events.squadRemoved?.(p, refund);
     } else {
       this.buildings.splice(this.buildings.indexOf(p), 1);
@@ -453,6 +595,14 @@ export class World {
       this.checkTech();
     }
     return refund;
+  }
+
+  private removeSquad(p: Squad): void {
+    p.removed = true;
+    this.releaseEngaged(p);
+    if (p.cover) this.coverOccupant.delete(p.cover.index);
+    const i = this.squads.indexOf(p);
+    if (i >= 0) this.squads.splice(i, 1);
   }
 
   rotate(squad: Squad, facing: number): void {
@@ -541,7 +691,8 @@ export class World {
 
     this.updateDetection(dt);
     this.updateAuras(dt);
-    for (const s of this.squads) this.updateSquad(s, dt);
+    for (let i = this.squads.length - 1; i >= 0; i--) this.updateSquad(this.squads[i], dt);
+    this.updatePowers(dt);
     for (let i = this.enemies.length - 1; i >= 0; i--) this.updateEnemy(this.enemies[i], dt);
     for (let i = this.projectiles.length - 1; i >= 0; i--) this.updateShell(this.projectiles[i], i, dt);
 
@@ -785,6 +936,7 @@ export class World {
   }
 
   private updateCover(squad: Squad): void {
+    if (squad.def.vehicleHull) return;
     const current = squad.cover;
     if (current && Math.hypot(current.x - squad.x, current.y - squad.y) <= getCover(current.type).radius) return;
     if (current) {
@@ -850,6 +1002,14 @@ export class World {
     for (const t of s.troopers) {
       t.prevX = t.x;
       t.prevY = t.y;
+    }
+    if (s.expires > 0) {
+      s.expires -= dt;
+      if (s.expires <= 0) {
+        this.removeSquad(s);
+        this.events.squadRemoved?.(s, 0);
+        return;
+      }
     }
     // Turrets keep shooting even while the crew is down.
     if (s.turrets.length) this.updateTurrets(s, dt);

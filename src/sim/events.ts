@@ -41,4 +41,9 @@ export interface SimEvents {
   stomp?(boss: Enemy, radius: number): void;
   bossPhase?(boss: Enemy, phase: number): void;
   healPulse?(healer: Enemy, target: Enemy): void;
+  powerUsed?(id: string, x: number, y: number, x2: number, y2: number, delay: number): void;
+  orbitalImpact?(x: number, y: number, radius: number): void;
+  bomb?(x: number, y: number, radius: number): void;
+  emp?(x: number, y: number, radius: number): void;
+  podLanded?(squad: Squad): void;
 }

@@ -12,6 +12,9 @@ import { sfx } from '../audio/Sfx';
 import { getCover } from '../data/cover';
 import { getUnit } from '../data/units';
 import type { PointerTarget } from '../input/types';
+import { Powers } from '../data/powers';
+import type { PowerId } from '../data/types';
+import { VEHICLE_SCALE } from '../render/WorldRenderer';
 import { Depth } from '../render/depth';
 import { UNIT_DRAW_SCALE, trooperArt } from '../render/WorldRenderer';
 import type { Placeable, Squad } from '../sim/entities';
@@ -27,7 +30,7 @@ export interface Ghost {
   check: PlacementCheck;
 }
 
-type Grab = 'none' | 'ghost' | 'ghostRotate' | 'rally' | 'rotate';
+type Grab = 'none' | 'ghost' | 'ghostRotate' | 'rally' | 'rotate' | 'power';
 
 /** Distance (world units) from the squad center to its rotate handle. */
 const HANDLE_DIST = 62;
@@ -43,6 +46,11 @@ export class Controller implements PointerTarget {
   private t = 0;
   /** Called whenever selection/placement changes, so the UI can refresh. */
   onChange?: () => void;
+  /** Called when an action fails, with the reason (shown as a toast). */
+  onError?: (reason: string) => void;
+  /** Commander power being aimed (null = none). */
+  power: PowerId | null = null;
+  private aim = { x: 0, y: 0, x2: 0, y2: 0, active: false };
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -64,10 +72,18 @@ export class Controller implements PointerTarget {
       this.ghostTroopers = [img];
     } else {
       const def = getUnit(unitId);
-      this.ghostTroopers = Array.from({ length: def.troopers }, (_, i) =>
-        addArt(this.scene, trooperArt({ def, spec: null }, i)).setAlpha(0.75).setDepth(Depth.handles - 1),
-      );
-      for (const img of this.ghostTroopers) img.setScale(img.scale * UNIT_DRAW_SCALE);
+      if (def.vehicleHull) {
+        const hull = addArt(this.scene, def.vehicleHull).setAlpha(0.75).setDepth(Depth.handles - 1);
+        const tur = addArt(this.scene, def.art).setAlpha(0.75).setDepth(Depth.handles - 1);
+        hull.setScale(hull.scale * VEHICLE_SCALE);
+        tur.setScale(tur.scale * VEHICLE_SCALE);
+        this.ghostTroopers = [hull, tur];
+      } else {
+        this.ghostTroopers = Array.from({ length: def.troopers }, (_, i) =>
+          addArt(this.scene, trooperArt({ def, spec: null }, i)).setAlpha(0.75).setDepth(Depth.handles - 1),
+        );
+        for (const img of this.ghostTroopers) img.setScale(img.scale * UNIT_DRAW_SCALE);
+      }
     }
     this.ghost = { unitId, x, y, facing: 0, manualFacing: false, check: this.world.checkPlacement(unitId, x, y) };
     this.moveGhost(x, y);
@@ -118,6 +134,10 @@ export class Controller implements PointerTarget {
   // ------------------------------------------------------------------ pointer input
 
   pointerDown(x: number, y: number, r: number): boolean {
+    if (this.power) {
+      this.aim = { x, y, x2: x, y2: y, active: true };
+      return this.startGrab('power', 0, 0);
+    }
     const gh = this.ghost;
     if (gh) {
       const hx = gh.check.x + Math.cos(gh.facing) * HANDLE_DIST, hy = gh.check.y + Math.sin(gh.facing) * HANDLE_DIST;
@@ -144,6 +164,15 @@ export class Controller implements PointerTarget {
   dragMove(x: number, y: number): void {
     const gh = this.ghost, s = this.selectedSquad;
     switch (this.grab) {
+      case 'power':
+        if (this.power === 'airstrike') {
+          this.aim.x2 = x;
+          this.aim.y2 = y;
+        } else {
+          this.aim.x = this.aim.x2 = x;
+          this.aim.y = this.aim.y2 = y;
+        }
+        break;
       case 'ghost':
         this.moveGhost(x + this.grabOffset.x, y + this.grabOffset.y);
         break;
@@ -169,7 +198,34 @@ export class Controller implements PointerTarget {
 
   dragEnd(x: number, y: number): void {
     this.dragMove(x, y);
+    if (this.grab === 'power' && this.power) {
+      const id = this.power;
+      const a = this.aim;
+      const reason = this.world.checkPower(id, a.x, a.y);
+      if (reason) {
+        this.onError?.(reason);
+        sfx.error();
+      } else {
+        this.world.usePower(id, a.x, a.y, a.x2, a.y2);
+      }
+      this.power = null;
+      this.aim.active = false;
+    }
     this.grab = 'none';
+    this.onChange?.();
+  }
+
+  /** Start aiming a commander power (from the UI button). Tapping it again cancels. */
+  beginPower(id: PowerId): void {
+    if (this.power === id) {
+      this.power = null;
+      this.onChange?.();
+      return;
+    }
+    this.cancelPlacement();
+    this.select(null);
+    this.power = id;
+    this.aim.active = false;
     this.onChange?.();
   }
 
@@ -212,6 +268,36 @@ export class Controller implements PointerTarget {
     this.t += dt;
     const g = this.g.clear();
     this.flag.setVisible(false);
+    if (this.power && this.aim.active) {
+      const def = Powers[this.power];
+      const a = this.aim;
+      const ok = !this.world.checkPower(this.power, a.x, a.y);
+      const col = ok ? (this.power === 'emp' ? 0x6fc8ff : this.power === 'droppod' ? Palette.fdcAccent : 0xff5a3a) : 0x888888;
+      const pulse = 0.5 + 0.5 * Math.sin(this.t * 10);
+      if (this.power === 'airstrike') {
+        let dx = a.x2 - a.x, dy = a.y2 - a.y;
+        const len = Math.hypot(dx, dy);
+        if (len > 20) {
+          dx /= len;
+          dy /= len;
+          const L = def.length ?? 300, cx = (a.x + a.x2) / 2, cy = (a.y + a.y2) / 2;
+          const x0 = cx - dx * L / 2, y0 = cy - dy * L / 2;
+          g.lineStyle(3, col, 0.8).lineBetween(x0, y0, x0 + dx * L, y0 + dy * L);
+          const n = def.bombs ?? 6;
+          for (let i = 0; i < n; i++) {
+            const k = i / (n - 1);
+            g.lineStyle(1.5, col, 0.5).strokeCircle(x0 + dx * L * k, y0 + dy * L * k, def.radius);
+          }
+        } else {
+          g.lineStyle(2, col, 0.6 + 0.4 * pulse).strokeCircle(a.x, a.y, 20);
+        }
+      } else {
+        g.lineStyle(3, col, 0.6 + 0.4 * pulse).strokeCircle(a.x, a.y, def.radius);
+        g.fillStyle(col, 0.12).fillCircle(a.x, a.y, def.radius);
+        g.lineStyle(2, col, 0.8).lineBetween(a.x - def.radius * 0.4, a.y, a.x + def.radius * 0.4, a.y).lineBetween(a.x, a.y - def.radius * 0.4, a.x, a.y + def.radius * 0.4);
+      }
+      return;
+    }
     if (this.selected?.removed) this.select(null);
 
     const gh = this.ghost;
@@ -240,6 +326,10 @@ export class Controller implements PointerTarget {
       if (cover) g.lineStyle(3, Palette.fdcAccent, 0.9).strokeCircle(cover.x, cover.y, getCover(cover.type).radius + 6);
       this.drawHandle(g, x + Math.cos(gh.facing) * HANDLE_DIST, y + Math.sin(gh.facing) * HANDLE_DIST, gh.facing);
       const n = this.ghostTroopers.length;
+      if (def.vehicleHull) {
+        for (const img of this.ghostTroopers) img.setPosition(x, y).setRotation(gh.facing).setTint(ok ? 0xffffff : 0xff9090);
+        return;
+      }
       this.ghostTroopers.forEach((img, i) => {
         const lateral = (i - (n - 1) / 2) * (n > 2 ? 15 : 17);
         const fwd = -Math.abs(lateral) * 0.35;

@@ -12,7 +12,7 @@ import { FLASH_ORIGIN } from '../assets/fxArt';
 const IDS = [
   'unit.rifle', 'unit.assault', 'unit.marksman', 'unit.heavy', 'unit.loader', 'unit.rocket', 'unit.gatling',
   'unit.sniper', 'unit.spotter', 'unit.antimateriel', 'unit.engineer', 'unit.medic', 'unit.turret',
-  'enemy.skitter', 'enemy.warden', 'enemy.ironback', 'enemy.veilstalker', 'enemy.skyray', 'enemy.tender', 'enemy.broodbarge', 'enemy.colossus', 'bld.sensor', 'bld.depot', 'bld.reactor',
+  'enemy.skitter', 'enemy.warden', 'enemy.ironback', 'enemy.veilstalker', 'enemy.skyray', 'enemy.tender', 'enemy.broodbarge', 'enemy.colossus', 'bld.sensor', 'veh.car.hull', 'veh.car.turret', 'veh.tank.hull', 'veh.tank.turret', 'veh.walker.hull', 'veh.walker.turret', 'fx.pod', 'bld.depot', 'bld.reactor',
   'cover.sandbags', 'cover.trench', 'cover.ruins', 'cover.bunker', 'prop.gate',
 ];
 
@@ -54,4 +54,4 @@ class Gallery extends Phaser.Scene {
   }
 }
 
-new Phaser.Game({ type: Phaser.WEBGL, parent: 'game', width: 6 * 210, height: 5 * 210, backgroundColor: '#2d3127', scene: [Gallery] });
+new Phaser.Game({ type: Phaser.WEBGL, parent: 'game', width: 6 * 210, height: 6 * 210, backgroundColor: '#2d3127', scene: [Gallery] });

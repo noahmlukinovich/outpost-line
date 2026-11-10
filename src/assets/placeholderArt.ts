@@ -11,6 +11,7 @@ import { SOLDIER_H, SOLDIER_ORIGIN, SOLDIER_W, SoldierLooks, drawSoldier } from 
 import { depot, reactor, turret } from './structures';
 import { generateFxArt } from './fxArt';
 import { broodbarge, colossus, sensor, skyray, tender, veilstalker } from './choirArt';
+import { VEHICLE_POINTS, carHull, carTurret, jet, pod, tankHull, tankTurret, walkerHull, walkerTurret } from './vehicleArt';
 
 type G = Phaser.GameObjects.Graphics;
 
@@ -288,6 +289,15 @@ export function generatePlaceholderArt(scene: Phaser.Scene): void {
   bake(scene, 'enemy.broodbarge', 80, 56, broodbarge);
   bake(scene, 'enemy.colossus', 100, 100, colossus);
   bake(scene, 'bld.sensor', 32, 32, sensor);
+  bake(scene, 'veh.car.hull', 48, 32, carHull);
+  bake(scene, 'veh.car.turret', 40, 20, carTurret);
+  bake(scene, 'veh.tank.hull', 60, 40, tankHull);
+  bake(scene, 'veh.tank.turret', 56, 28, tankTurret);
+  bake(scene, 'veh.walker.hull', 44, 44, walkerHull);
+  bake(scene, 'veh.walker.turret', 40, 32, walkerTurret);
+  for (const [id, p] of Object.entries(VEHICLE_POINTS)) ART_ORIGINS[id] = { x: p.pivot[0] / p.w, y: p.pivot[1] / p.h };
+  bake(scene, 'fx.jet', 40, 40, jet);
+  bake(scene, 'fx.pod', 20, 20, pod);
   bake(scene, 'bld.depot', 64, 64, depot);
   bake(scene, 'bld.reactor', 64, 64, reactor);
   bake(scene, 'fx.mark', 24, 24, (g) => {

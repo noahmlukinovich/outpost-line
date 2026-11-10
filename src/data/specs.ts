@@ -187,6 +187,56 @@ export const Specs = {
         effects: [{ kind: 'turretStat', range: 1.25 }, { kind: 'antiAir' }] },
     ],
   },
+
+  // ---------------------------------------------------------------- Motor Pool
+  siege: {
+    id: 'siege',
+    name: 'Siege Tank',
+    blurb: 'Long-range artillery. Huge blasts; can\'t hit fliers.',
+    cost: 200,
+    tech: 3,
+    art: 'veh.tank.turret',
+    vehicleHull: 'veh.tank.hull',
+    trooperHp: 520,
+    arcDeg: 160,
+    weapon: { damage: 130, rof: 0.32, range: 300, damageType: 'explosive', accuracy: 1, splashRadius: 70, projectileSpeed: 420 },
+    abilities: [
+      { id: 'bunkerbuster', name: 'Bunker Buster', cost: 140, tech: 3,
+        desc: '+60% damage against armored enemies.',
+        effects: [{ kind: 'armoredMult', mult: 1.6 }] },
+      { id: 'siegemode', name: 'Siege Mode', cost: 160, tech: 3,
+        desc: '+30% range and +25% blast radius.',
+        effects: [{ kind: 'stat', stat: 'range', mult: 1.3 }, { kind: 'stat', stat: 'splash', mult: 1.25 }] },
+      { id: 'reactive', name: 'Reactive Armor', cost: 120, tech: 3,
+        desc: 'Takes 40% less damage.',
+        effects: [{ kind: 'armor', reduction: 0.4 }] },
+    ],
+  },
+
+  aawalker: {
+    id: 'aawalker',
+    name: 'Anti-Air Walker',
+    blurb: 'Flak walker. Shreds fliers and dropships.',
+    cost: 180,
+    tech: 3,
+    art: 'veh.walker.turret',
+    vehicleHull: 'veh.walker.hull',
+    trooperHp: 440,
+    arcDeg: 240,
+    weapon: { damage: 9, rof: 7, range: 240, damageType: 'ballistic', accuracy: 0.9 },
+    effects: [{ kind: 'antiAir' }],
+    abilities: [
+      { id: 'flakburst', name: 'Flak Burst', cost: 120, tech: 3,
+        desc: '+35% damage.',
+        effects: [{ kind: 'stat', stat: 'damage', mult: 1.35 }] },
+      { id: 'interceptors', name: 'Interceptor Pods', cost: 150, tech: 3,
+        desc: 'Fires at up to 3 targets at once (70% damage each).',
+        effects: [{ kind: 'multishot', count: 3, dmgMult: 0.7 }] },
+      { id: 'uplink', name: 'Target Uplink', cost: 130, tech: 3,
+        desc: 'Squads nearby fire 15% faster.',
+        effects: [{ kind: 'aura', radius: 150, rof: 1.15 }] },
+    ],
+  },
 } satisfies Record<string, SpecDef>;
 
 export function getSpec(id: string): SpecDef {

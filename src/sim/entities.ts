@@ -71,6 +71,8 @@ export interface Squad {
   /** Buffs from friendly auras this tick. */
   auraRof: number;
   auraReinforce: number;
+  /** Seconds left for temporary squads (drop pods); 0 = permanent. */
+  expires: number;
 }
 
 export interface Building {
