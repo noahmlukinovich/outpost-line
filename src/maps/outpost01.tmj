@@ -1,0 +1,668 @@
+{
+ "compressionlevel": -1,
+ "height": 45,
+ "width": 72,
+ "tilewidth": 20,
+ "tileheight": 20,
+ "infinite": false,
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "tiledversion": "1.11.0",
+ "type": "map",
+ "version": "1.10",
+ "nextlayerid": 5,
+ "nextobjectid": 22,
+ "properties": [
+  {
+   "name": "biome",
+   "type": "string",
+   "value": "ashlands"
+  },
+  {
+   "name": "name",
+   "type": "string",
+   "value": "Firebase Ridgeline"
+  }
+ ],
+ "layers": [
+  {
+   "id": 1,
+   "name": "paths",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "opacity": 1,
+   "visible": true,
+   "x": 0,
+   "y": 0,
+   "objects": [
+    {
+     "id": 1,
+     "name": "path_a",
+     "type": "",
+     "x": 0,
+     "y": 0,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "polyline": [
+      {
+       "x": 1500,
+       "y": 170
+      },
+      {
+       "x": 1180,
+       "y": 170
+      },
+      {
+       "x": 1090,
+       "y": 250
+      },
+      {
+       "x": 1090,
+       "y": 500
+      },
+      {
+       "x": 1000,
+       "y": 590
+      },
+      {
+       "x": 650,
+       "y": 590
+      },
+      {
+       "x": 560,
+       "y": 500
+      },
+      {
+       "x": 560,
+       "y": 290
+      },
+      {
+       "x": 480,
+       "y": 210
+      },
+      {
+       "x": 330,
+       "y": 210
+      },
+      {
+       "x": 250,
+       "y": 290
+      },
+      {
+       "x": 250,
+       "y": 600
+      },
+      {
+       "x": 160,
+       "y": 690
+      },
+      {
+       "x": -60,
+       "y": 690
+      }
+     ],
+     "properties": [
+      {
+       "name": "width",
+       "type": "float",
+       "value": 56
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "name": "zones",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "opacity": 1,
+   "visible": true,
+   "x": 0,
+   "y": 0,
+   "objects": [
+    {
+     "id": 2,
+     "name": "rocks",
+     "type": "",
+     "x": 0,
+     "y": 0,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "polygon": [
+      {
+       "x": 700,
+       "y": 240
+      },
+      {
+       "x": 800,
+       "y": 220
+      },
+      {
+       "x": 850,
+       "y": 290
+      },
+      {
+       "x": 790,
+       "y": 340
+      },
+      {
+       "x": 710,
+       "y": 320
+      }
+     ],
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "blocked"
+      },
+      {
+       "name": "look",
+       "type": "string",
+       "value": "rock"
+      }
+     ]
+    },
+    {
+     "id": 3,
+     "name": "pond",
+     "type": "",
+     "x": 0,
+     "y": 0,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "polygon": [
+      {
+       "x": 560,
+       "y": 700
+      },
+      {
+       "x": 700,
+       "y": 680
+      },
+      {
+       "x": 760,
+       "y": 760
+      },
+      {
+       "x": 680,
+       "y": 840
+      },
+      {
+       "x": 560,
+       "y": 820
+      },
+      {
+       "x": 520,
+       "y": 760
+      }
+     ],
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "blocked"
+      },
+      {
+       "name": "look",
+       "type": "string",
+       "value": "water"
+      }
+     ]
+    },
+    {
+     "id": 4,
+     "name": "cliff",
+     "type": "",
+     "x": 0,
+     "y": 0,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "polygon": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 200,
+       "y": 0
+      },
+      {
+       "x": 170,
+       "y": 90
+      },
+      {
+       "x": 90,
+       "y": 140
+      },
+      {
+       "x": 0,
+       "y": 160
+      }
+     ],
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "blocked"
+      },
+      {
+       "name": "look",
+       "type": "string",
+       "value": "cliff"
+      }
+     ]
+    },
+    {
+     "id": 5,
+     "name": "rocks",
+     "type": "",
+     "x": 0,
+     "y": 0,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "polygon": [
+      {
+       "x": 1300,
+       "y": 520
+      },
+      {
+       "x": 1400,
+       "y": 480
+      },
+      {
+       "x": 1440,
+       "y": 560
+      },
+      {
+       "x": 1440,
+       "y": 700
+      },
+      {
+       "x": 1340,
+       "y": 680
+      }
+     ],
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "blocked"
+      },
+      {
+       "name": "look",
+       "type": "string",
+       "value": "rock"
+      }
+     ]
+    },
+    {
+     "id": 6,
+     "name": "ridge",
+     "type": "",
+     "x": 0,
+     "y": 0,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "polygon": [
+      {
+       "x": 1150,
+       "y": 780
+      },
+      {
+       "x": 1300,
+       "y": 760
+      },
+      {
+       "x": 1440,
+       "y": 800
+      },
+      {
+       "x": 1440,
+       "y": 900
+      },
+      {
+       "x": 1130,
+       "y": 900
+      }
+     ],
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "blocked"
+      },
+      {
+       "name": "look",
+       "type": "string",
+       "value": "cliff"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "name": "cover",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "opacity": 1,
+   "visible": true,
+   "x": 0,
+   "y": 0,
+   "objects": [
+    {
+     "id": 7,
+     "name": "bunker",
+     "type": "",
+     "x": 405,
+     "y": 420,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "bunker"
+      }
+     ]
+    },
+    {
+     "id": 8,
+     "name": "ruins",
+     "type": "",
+     "x": 830,
+     "y": 470,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "ruins"
+      }
+     ]
+    },
+    {
+     "id": 9,
+     "name": "trench",
+     "type": "",
+     "x": 820,
+     "y": 700,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "trench"
+      }
+     ]
+    },
+    {
+     "id": 10,
+     "name": "sandbags",
+     "type": "",
+     "x": 1000,
+     "y": 380,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "sandbags"
+      }
+     ]
+    },
+    {
+     "id": 11,
+     "name": "sandbags",
+     "type": "",
+     "x": 1250,
+     "y": 320,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "sandbags"
+      }
+     ]
+    },
+    {
+     "id": 12,
+     "name": "sandbags",
+     "type": "",
+     "x": 400,
+     "y": 110,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "sandbags"
+      }
+     ]
+    },
+    {
+     "id": 13,
+     "name": "sandbags",
+     "type": "",
+     "x": 130,
+     "y": 470,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "sandbags"
+      }
+     ]
+    },
+    {
+     "id": 14,
+     "name": "sandbags",
+     "type": "",
+     "x": 330,
+     "y": 790,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "coverType",
+       "type": "string",
+       "value": "sandbags"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "name": "decor",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "opacity": 1,
+   "visible": true,
+   "x": 0,
+   "y": 0,
+   "objects": [
+    {
+     "id": 15,
+     "name": "floodlight",
+     "type": "",
+     "x": 70,
+     "y": 620,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "floodlight"
+      }
+     ]
+    },
+    {
+     "id": 16,
+     "name": "floodlight",
+     "type": "",
+     "x": 70,
+     "y": 760,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "floodlight"
+      }
+     ]
+    },
+    {
+     "id": 17,
+     "name": "crate",
+     "type": "",
+     "x": 120,
+     "y": 600,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "crate"
+      }
+     ]
+    },
+    {
+     "id": 18,
+     "name": "crate",
+     "type": "",
+     "x": 95,
+     "y": 780,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "crate"
+      }
+     ]
+    },
+    {
+     "id": 19,
+     "name": "wreck",
+     "type": "",
+     "x": 930,
+     "y": 150,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "wreck"
+      }
+     ]
+    },
+    {
+     "id": 20,
+     "name": "wreck",
+     "type": "",
+     "x": 300,
+     "y": 450,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "wreck"
+      }
+     ]
+    },
+    {
+     "id": 21,
+     "name": "floodlight",
+     "type": "",
+     "x": 405,
+     "y": 420,
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "point": true,
+     "properties": [
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "floodlight"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "tilesets": []
+}
