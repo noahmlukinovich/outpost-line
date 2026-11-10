@@ -80,11 +80,11 @@ export class Effects {
     }
 
     this.sparks = scene.add.particles(0, 0, 'fx.spark', {
-      speed: { min: 50, max: 200 }, lifespan: { min: 120, max: 300 }, scale: { start: 0.45, end: 0 },
+      speed: { min: 50, max: 200 }, lifespan: { min: 120, max: 300 }, scale: { start: 0.3, end: 0 },
       tint: [0xffe7a3, 0xffffff, 0xffb238], blendMode: 'ADD', emitting: false,
     }).setDepth(Depth.fx);
     this.gore = scene.add.particles(0, 0, 'fx.spark', {
-      speed: { min: 30, max: 150 }, lifespan: { min: 250, max: 520 }, scale: { start: 0.8, end: 0.1 },
+      speed: { min: 30, max: 150 }, lifespan: { min: 250, max: 520 }, scale: { start: 0.55, end: 0.07 },
       tint: [Palette.choirBody, Palette.choirCore, Palette.ichor], emitting: false,
     }).setDepth(Depth.fx);
     this.fire = scene.add.particles(0, 0, 'fx.soft', {
@@ -96,7 +96,7 @@ export class Effects {
       alpha: { start: 0.45, end: 0 }, tint: [0x2a2824, 0x3a3631], emitting: false,
     }).setDepth(Depth.fx);
     this.shards = scene.add.particles(0, 0, 'fx.spark', {
-      speed: { min: 80, max: 260 }, lifespan: { min: 250, max: 500 }, scale: { start: 0.6, end: 0 },
+      speed: { min: 80, max: 260 }, lifespan: { min: 250, max: 500 }, scale: { start: 0.4, end: 0 },
       tint: [Palette.shield, 0xffffff, 0x9fe0ff], blendMode: 'ADD', emitting: false,
     }).setDepth(Depth.fx);
     this.dust = scene.add.particles(0, 0, 'fx.soft', {
@@ -154,7 +154,7 @@ export class Effects {
     if (!f) return;
     f.kind = Kind.Ring;
     f.life = f.max = life;
-    f.s0 = (r0 * 2) / 128; f.s1 = (r1 * 2) / 128; f.a0 = 0.9;
+    f.s0 = ((r0 * 2) / 64) * ART_SCALE; f.s1 = ((r1 * 2) / 64) * ART_SCALE; f.a0 = 0.9;
     f.img.setTexture('fx.ring').setPosition(x, y).setScale(f.s0).setTint(tint).setBlendMode(Phaser.BlendModes.ADD).setDepth(Depth.fx);
     this.active.push(f);
   }
@@ -197,7 +197,7 @@ export class Effects {
     this.sparks.explode(8, x, y);
     this.light(x, y, radius * 4, 0xffb060, 0.45, 0.25);
     this.ring(x, y, radius * 0.3, radius * 1.1, 0xffc070, 0.25);
-    this.decal('fx.scorch', x, y, (radius * 1.5) / 128, 0xffffff, 30, 0.45);
+    this.decal('fx.scorch', x, y, ((radius * 1.5) / 64) * ART_SCALE, 0xffffff, 30, 0.45);
   }
 
   // ------------------------------------------------------------------ update

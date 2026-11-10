@@ -13,8 +13,9 @@ import { getCover } from '../data/cover';
 import { getUnit } from '../data/units';
 import type { PointerTarget } from '../input/types';
 import { Depth } from '../render/depth';
-import { UNIT_DRAW_SCALE } from '../render/WorldRenderer';
-import type { Squad } from '../sim/entities';
+import { UNIT_DRAW_SCALE, trooperArt } from '../render/WorldRenderer';
+import type { Placeable, Squad } from '../sim/entities';
+import { getBuilding, isBuildingId } from '../data/buildings';
 import type { PlacementCheck, World } from '../sim/World';
 
 export interface Ghost {
@@ -33,7 +34,7 @@ const HANDLE_DIST = 62;
 
 export class Controller implements PointerTarget {
   ghost: Ghost | null = null;
-  selected: Squad | null = null;
+  selected: Placeable | null = null;
   private grab: Grab = 'none';
   private grabOffset = { x: 0, y: 0 };
   private readonly g: Phaser.GameObjects.Graphics;
@@ -55,12 +56,19 @@ export class Controller implements PointerTarget {
 
   beginPlacement(unitId: string, x: number, y: number): void {
     this.select(null);
-    const def = getUnit(unitId);
     for (const t of this.ghostTroopers) t.destroy();
-    this.ghostTroopers = Array.from({ length: def.troopers }, (_, i) =>
-      addArt(this.scene, i === 0 && def.leadArt ? def.leadArt : def.art).setAlpha(0.75).setDepth(Depth.handles - 1),
-    );
-    for (const img of this.ghostTroopers) img.setScale(img.scale * UNIT_DRAW_SCALE);
+    if (isBuildingId(unitId)) {
+      const b = getBuilding(unitId);
+      const img = addArt(this.scene, b.art).setAlpha(0.75).setDepth(Depth.handles - 1);
+      img.setScale(((b.footprint * 2.2) / 64) * img.scale);
+      this.ghostTroopers = [img];
+    } else {
+      const def = getUnit(unitId);
+      this.ghostTroopers = Array.from({ length: def.troopers }, (_, i) =>
+        addArt(this.scene, trooperArt({ def, spec: null }, i)).setAlpha(0.75).setDepth(Depth.handles - 1),
+      );
+      for (const img of this.ghostTroopers) img.setScale(img.scale * UNIT_DRAW_SCALE);
+    }
     this.ghost = { unitId, x, y, facing: 0, manualFacing: false, check: this.world.checkPlacement(unitId, x, y) };
     this.moveGhost(x, y);
     this.onChange?.();
@@ -72,7 +80,7 @@ export class Controller implements PointerTarget {
     gh.x = x;
     gh.y = y;
     gh.check = this.world.checkPlacement(gh.unitId, x, y);
-    if (!gh.manualFacing) gh.facing = this.world.suggestFacing(gh.check.x, gh.check.y);
+    if (!gh.manualFacing && !isBuildingId(gh.unitId)) gh.facing = this.world.suggestFacing(gh.check.x, gh.check.y);
   }
 
   confirmPlacement(): boolean {
@@ -83,10 +91,10 @@ export class Controller implements PointerTarget {
       sfx.error();
       return false;
     }
-    const squad = this.world.placeSquad(gh.unitId, gh.x, gh.y, gh.facing);
+    const placed = this.world.place(gh.unitId, gh.x, gh.y, gh.facing);
     this.cancelPlacement();
-    if (squad) this.select(squad);
-    return !!squad;
+    if (placed) this.select(placed);
+    return !!placed;
   }
 
   cancelPlacement(): void {
@@ -97,10 +105,14 @@ export class Controller implements PointerTarget {
     this.onChange?.();
   }
 
-  select(squad: Squad | null): void {
-    if (this.selected === squad) return;
-    this.selected = squad;
+  select(p: Placeable | null): void {
+    if (this.selected === p) return;
+    this.selected = p;
     this.onChange?.();
+  }
+
+  get selectedSquad(): Squad | null {
+    return this.selected?.kind === 'squad' ? this.selected : null;
   }
 
   // ------------------------------------------------------------------ pointer input
@@ -109,11 +121,11 @@ export class Controller implements PointerTarget {
     const gh = this.ghost;
     if (gh) {
       const hx = gh.check.x + Math.cos(gh.facing) * HANDLE_DIST, hy = gh.check.y + Math.sin(gh.facing) * HANDLE_DIST;
-      if (Math.hypot(x - hx, y - hy) < r) return this.startGrab('ghostRotate', 0, 0);
+      if (!isBuildingId(gh.unitId) && Math.hypot(x - hx, y - hy) < r) return this.startGrab('ghostRotate', 0, 0);
       if (Math.hypot(x - gh.check.x, y - gh.check.y) < Math.max(r, 34)) return this.startGrab('ghost', gh.x - x, gh.y - y);
       return false;
     }
-    const s = this.selected;
+    const s = this.selectedSquad;
     if (s && !s.removed) {
       if (Math.hypot(x - s.rallyX, y - (s.rallyY - 14)) < Math.max(r, 26)) return this.startGrab('rally', s.rallyX - x, s.rallyY - y);
       const hx = s.x + Math.cos(s.facing) * HANDLE_DIST, hy = s.y + Math.sin(s.facing) * HANDLE_DIST;
@@ -130,7 +142,7 @@ export class Controller implements PointerTarget {
   }
 
   dragMove(x: number, y: number): void {
-    const gh = this.ghost, s = this.selected;
+    const gh = this.ghost, s = this.selectedSquad;
     switch (this.grab) {
       case 'ghost':
         this.moveGhost(x + this.grabOffset.x, y + this.grabOffset.y);
@@ -150,6 +162,11 @@ export class Controller implements PointerTarget {
     }
   }
 
+  /** True while a ghost, flag or handle is being dragged (the camera edge-scrolls). */
+  get dragging(): boolean {
+    return this.grab !== 'none';
+  }
+
   dragEnd(x: number, y: number): void {
     this.dragMove(x, y);
     this.grab = 'none';
@@ -163,12 +180,19 @@ export class Controller implements PointerTarget {
       this.onChange?.();
       return;
     }
-    let best: Squad | null = null;
+    let best: Placeable | null = null;
     let bestD = Infinity;
     for (const s of this.world.squads) {
       const d = Math.min(Math.hypot(s.x - x, s.y - y), Math.hypot(s.anchorX - x, s.anchorY - y));
       if (d < s.def.footprint + 14 && d < bestD) {
         best = s;
+        bestD = d;
+      }
+    }
+    for (const b of this.world.buildings) {
+      const d = Math.hypot(b.x - x, b.y - y);
+      if (d < b.def.footprint + 10 && d < bestD) {
+        best = b;
         bestD = d;
       }
     }
@@ -191,6 +215,15 @@ export class Controller implements PointerTarget {
     if (this.selected?.removed) this.select(null);
 
     const gh = this.ghost;
+    if (gh && isBuildingId(gh.unitId)) {
+      const b = getBuilding(gh.unitId);
+      const { x, y, ok } = gh.check;
+      const color = ok ? 0x7be08a : 0xff5a4a;
+      g.lineStyle(2, color, 0.9).strokeCircle(x, y, b.footprint);
+      g.fillStyle(color, 0.15).fillCircle(x, y, b.footprint);
+      this.ghostTroopers[0]?.setPosition(x, y).setTint(ok ? 0xffffff : 0xff9090);
+      return;
+    }
     if (gh) {
       const def = getUnit(gh.unitId);
       const { x, y, ok, cover } = gh.check;
@@ -203,7 +236,7 @@ export class Controller implements PointerTarget {
       this.drawHandle(g, x + Math.cos(gh.facing) * HANDLE_DIST, y + Math.sin(gh.facing) * HANDLE_DIST, gh.facing);
       const n = this.ghostTroopers.length;
       this.ghostTroopers.forEach((img, i) => {
-        const lateral = (i - (n - 1) / 2) * (n > 2 ? 13 : 15);
+        const lateral = (i - (n - 1) / 2) * (n > 2 ? 15 : 17);
         const fwd = -Math.abs(lateral) * 0.35;
         const c = Math.cos(gh.facing), s = Math.sin(gh.facing);
         img.setPosition(x + fwd * c - lateral * s, y + fwd * s + lateral * c).setRotation(gh.facing).setTint(ok ? 0xffffff : 0xff9090);
@@ -211,9 +244,14 @@ export class Controller implements PointerTarget {
       return;
     }
 
-    const s = this.selected;
-    if (!s) return;
+    const sel = this.selected;
+    if (!sel) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.t * 5);
+    if (sel.kind === 'building') {
+      g.lineStyle(2.5, Palette.uiAmber, 0.6 + 0.4 * pulse).strokeCircle(sel.x, sel.y, sel.def.footprint + 6);
+      return;
+    }
+    const s = sel;
     // Leash circle (where the rally point may go).
     g.lineStyle(1.5, 0xffffff, 0.25);
     this.dashedCircle(g, s.anchorX, s.anchorY, s.def.leash);

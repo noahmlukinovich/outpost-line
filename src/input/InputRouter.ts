@@ -136,6 +136,34 @@ export class InputRouter {
     }
   }
 
+  /**
+   * Edge-scrolling: while dragging something near a screen edge (or over the HUD bars), slide the
+   * camera so you can place things anywhere on the map. Returns true if the camera moved.
+   */
+  edgePan(cssX: number, cssY: number, dt: number, hud: { top: number; bottom: number }): boolean {
+    const W = this.rig.viewWidth, H = this.rig.viewHeight;
+    const m = 60;
+    let vx = 0, vy = 0;
+    if (cssX < m) vx = (m - cssX) / m;
+    else if (cssX > W - m) vx = -(cssX - (W - m)) / m;
+    if (cssY < hud.top + m * 0.5) vy = Math.min(1, (hud.top + m * 0.5 - cssY) / m);
+    else if (cssY > H - hud.bottom - m * 0.5) vy = -Math.min(1, (cssY - (H - hud.bottom - m * 0.5)) / m);
+    if (!vx && !vy) return false;
+    const speed = 520 * dt * DPR;
+    return this.rig.panBy(vx * speed, vy * speed);
+  }
+
+  /** Per-frame: edge-scroll while a handle/ghost is grabbed on the battlefield. */
+  update(dt: number, hud: { top: number; bottom: number }): void {
+    for (const t of this.touches.values()) {
+      if (t.mode !== 'grab') continue;
+      if (this.edgePan(t.x / DPR, t.y / DPR, dt, hud)) {
+        const w = this.rig.screenToWorld(t.x, t.y, this.tmp);
+        this.target.dragMove(w.x, w.y);
+      }
+    }
+  }
+
   /** Drop all tracked touches (e.g. when a menu opens). */
   reset(): void {
     this.touches.clear();

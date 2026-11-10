@@ -135,3 +135,96 @@ export function panelBg(scene: Phaser.Scene, w: number, h: number, alpha = 0.92)
   g.lineStyle(1.5, 0x3a3d34, 1).strokeRoundedRect(0, 0, w, h, 12);
   return g;
 }
+
+/** Anything the UIScene can route taps to. */
+export interface Tappable {
+  readonly container: Phaser.GameObjects.Container;
+  enabled: boolean;
+  pressed: boolean;
+  onTap: () => void;
+  readonly visible: boolean;
+  contains(x: number, y: number): boolean;
+  redraw(): void;
+  setVisible(v: boolean): this;
+}
+
+export type ActionState = 'buy' | 'locked' | 'owned' | 'poor';
+
+/**
+ * A wide list button: title on the left, cost on the right, a wrapped description below.
+ * Used for upgrades, specializations and abilities.
+ */
+export class ActionButton implements Tappable {
+  readonly container: Phaser.GameObjects.Container;
+  private readonly bg: Phaser.GameObjects.Graphics;
+  private readonly title: Phaser.GameObjects.Text;
+  private readonly cost: Phaser.GameObjects.Text;
+  private readonly desc: Phaser.GameObjects.Text;
+  enabled = true;
+  pressed = false;
+  state: ActionState = 'buy';
+  accent: number = Palette.uiAmber;
+  onTap: () => void = () => {};
+  h = 60;
+
+  constructor(scene: Phaser.Scene, public w: number) {
+    this.bg = scene.add.graphics();
+    this.title = text(scene, 12, 9, '', 16, Palette.uiText, '800');
+    this.cost = text(scene, w - 12, 9, '', 16, Palette.uiAmber, '800').setOrigin(1, 0);
+    this.desc = text(scene, 12, 31, '', 12, Palette.uiDim, '600').setWordWrapWidth(w - 24).setLineSpacing(1);
+    this.container = scene.add.container(0, 0, [this.bg, this.title, this.cost, this.desc]);
+  }
+
+  get visible(): boolean {
+    return this.container.visible && (this.container.parentContainer?.visible ?? true);
+  }
+
+  setVisible(v: boolean): this {
+    this.container.setVisible(v);
+    if (!v) this.pressed = false;
+    return this;
+  }
+
+  setPosition(x: number, y: number): this {
+    this.container.setPosition(x, y);
+    return this;
+  }
+
+  /** Update content; returns the button height (depends on description length). */
+  set(title: string, cost: string, desc: string, state: ActionState, accent: number = Palette.uiAmber): number {
+    setText(this.title, title);
+    setText(this.cost, cost);
+    setText(this.desc, desc);
+    const h = Math.max(54, 40 + this.desc.height);
+    if (state !== this.state || accent !== this.accent || h !== this.h) {
+      this.state = state;
+      this.accent = accent;
+      this.h = h;
+      this.enabled = state === 'buy';
+      this.redraw();
+    }
+    return h;
+  }
+
+  contains(x: number, y: number): boolean {
+    if (!this.visible) return false;
+    const m = this.container.getWorldTransformMatrix();
+    const lx = x - m.tx, ly = y - m.ty;
+    return lx >= 0 && ly >= 0 && lx <= this.w && ly <= this.h;
+  }
+
+  redraw(): void {
+    const g = this.bg.clear();
+    const dy = this.pressed ? 2 : 0;
+    const s = this.state;
+    const fill = s === 'buy' ? 0x2c3024 : s === 'owned' ? 0x1f2a22 : 0x1e201b;
+    const border = s === 'buy' ? this.accent : s === 'owned' ? 0x7be08a : 0x3a3d34;
+    g.fillStyle(0x000000, 0.35).fillRoundedRect(2, 3, this.w, this.h, 8);
+    g.fillStyle(fill, 1).fillRoundedRect(0, dy, this.w, this.h, 8);
+    g.lineStyle(s === 'buy' ? 2 : 1.5, border, 1).strokeRoundedRect(0, dy, this.w, this.h, 8);
+    this.title.setAlpha(s === 'locked' ? 0.55 : 1).setY(9 + dy);
+    this.cost.setAlpha(s === 'locked' || s === 'poor' ? 0.55 : 1).setY(9 + dy)
+      .setColor(css(s === 'owned' ? 0x7be08a : s === 'poor' ? 0xff8a7a : Palette.uiAmber));
+    this.desc.setY(31 + dy);
+  }
+}

@@ -9,34 +9,47 @@ import { DPR, fitCamera, logicalSize, safeAreaInsets } from '../app/display';
 import { addArt } from '../assets/art';
 import { Palette, css } from '../assets/palette';
 import { sfx } from '../audio/Sfx';
+import { Balance } from '../data/balance';
+import { getBuilding } from '../data/buildings';
 import { getCover } from '../data/cover';
 import { getEnemy } from '../data/enemies';
-import type { TargetMode, UnitDef } from '../data/types';
+import type { TargetMode } from '../data/types';
 import { getUnit } from '../data/units';
 import type { UiHitTester } from '../input/types';
+import { trooperArt } from '../render/WorldRenderer';
 import { save } from '../save/SaveSystem';
-import type { Squad } from '../sim/entities';
+import type { Building, Squad } from '../sim/entities';
+import { specsOf } from '../sim/stats';
 import { HUD, type GameScene } from '../scenes/GameScene';
-import { Button, panelBg, setText, text } from './widgets';
+import { ActionButton, Button, panelBg, setText, text, type Tappable } from './widgets';
 
 interface CardDrag {
   pointerId: number;
-  unitId: string;
+  id: string;
   startX: number;
   startY: number;
   dragging: boolean;
 }
 
+interface Card {
+  btn: Button;
+  id: string;
+  cost: number;
+  isUnit: boolean;
+  costText: Phaser.GameObjects.Text;
+}
+
 const TARGET_LABEL: Record<TargetMode, string> = { first: 'First', strongest: 'Strongest', weakest: 'Weakest', closest: 'Closest' };
 const ROMAN = ['I', 'II', 'III'];
+const PANEL_W = 300;
 
 export class UIScene extends Phaser.Scene implements UiHitTester {
   private gs!: GameScene;
   private W = 0;
   private H = 0;
   private inset = { top: 0, right: 0, bottom: 0, left: 0 };
-  private buttons: Button[] = [];
-  private pressed = new Map<number, Button>();
+  private buttons: Tappable[] = [];
+  private pressed = new Map<number, Tappable>();
   private rects: { r: Phaser.Geom.Rectangle; visible: () => boolean }[] = [];
   private modal: 'none' | 'menu' | 'end' = 'none';
 
@@ -44,6 +57,8 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private suppliesText!: Phaser.GameObjects.Text;
   private integrityText!: Phaser.GameObjects.Text;
   private waveText!: Phaser.GameObjects.Text;
+  private powerText!: Phaser.GameObjects.Text;
+  private capText!: Phaser.GameObjects.Text;
   private speedBtn!: Button;
   private pauseBtn!: Button;
   private pausedBanner!: Phaser.GameObjects.Text;
@@ -52,8 +67,9 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private lastIntegrity = 0;
 
   // Build bar
-  private cards: { btn: Button; def: UnitDef }[] = [];
+  private cards: Card[] = [];
   private cardDrag: CardDrag | null = null;
+  private dragPos = { x: 0, y: 0 };
 
   // Placement
   private okBtn!: Button;
@@ -71,16 +87,19 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private previewTimer = 0;
   private previewRect = new Phaser.Geom.Rectangle();
 
-  // Squad panel
+  // Selection panel
   private panel!: Phaser.GameObjects.Container;
+  private panelBgG!: Phaser.GameObjects.Graphics;
   private panelRect = new Phaser.Geom.Rectangle();
   private panelTitle!: Phaser.GameObjects.Text;
+  private panelSub!: Phaser.GameObjects.Text;
   private panelInfo!: Phaser.GameObjects.Text;
-  private upgradeBtn!: Button;
+  private actions: ActionButton[] = [];
   private targetBtn!: Button;
   private sellBtn!: Button;
   private closeBtn!: Button;
   private panelSide: 'left' | 'right' = 'right';
+  private panelH = 0;
   private sellArmed = 0;
 
   // Toast
@@ -110,9 +129,13 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.buttons = [];
     this.rects = [];
     this.cards = [];
+    this.actions = [];
+    this.menuButtons = [];
+    this.toggles = [];
     this.pressed.clear();
     this.modal = 'none';
     this.previewFor = -1;
+    this.cardDrag = null;
     this.lastIntegrity = this.gs.world.integrity;
 
     this.damageOverlay = this.add.image(0, 0, 'fx.vignette').setOrigin(0).setDisplaySize(this.W, this.H).setTint(0xff2020).setAlpha(0);
@@ -120,7 +143,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.buildBuildBar();
     this.buildPlacement();
     this.buildWave();
-    this.buildSquadPanel();
+    this.buildPanel();
     this.toastText = text(this, this.W / 2, HUD.top + 30, '', 20, Palette.uiText, '800').setOrigin(0.5).setAlpha(0)
       .setShadow(0, 2, '#000', 6, false, true);
     this.pausedBanner = text(this, this.W / 2, this.H / 2 - 40, 'PAUSED', 44, Palette.uiAmber, '900').setOrigin(0.5)
@@ -130,16 +153,19 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
     this.gs.controller.onChange = () => this.onSelectionChange();
     this.gs.view.onIntegrityHit = () => (this.damageFlash = 1);
+    this.gs.view.onNotice = (t) => this.toast(t);
     const w = this.gs.world;
-    const prevCleared = w.events.waveCleared?.bind(w.events);
-    w.events.waveCleared = (i, bonus) => {
+    const ev = w.events;
+    const prevCleared = ev.waveCleared?.bind(ev);
+    ev.waveCleared = (i, bonus) => {
       prevCleared?.(i, bonus);
       if (bonus > 0) this.toast(`Wave ${i + 1} cleared  +${bonus} supplies`);
     };
-    const prevStart = w.events.waveStarted?.bind(w.events);
-    w.events.waveStarted = (i, bonus) => {
+    const prevStart = ev.waveStarted?.bind(ev);
+    ev.waveStarted = (i, bonus) => {
       prevStart?.(i, bonus);
-      this.toast(bonus > 0 ? `Wave ${i + 1} called early  +${bonus}` : `Wave ${i + 1} incoming`);
+      const inc = i > 0 ? w.income : 0;
+      this.toast(`${bonus > 0 ? `Wave ${i + 1} called early  +${bonus}` : `Wave ${i + 1} incoming`}${inc ? `  ·  depots +${inc}` : ''}`);
       this.hidePreview();
     };
 
@@ -161,25 +187,32 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   // ================================================================== layout
 
-  private addButton(b: Button): Button {
+  private addButton<T extends Tappable>(b: T): T {
     this.buttons.push(b);
     return b;
   }
 
   private buildTopBar(): void {
-    const x = 12 + this.inset.left, y = 10 + this.inset.top;
-    const bg = panelBg(this, 380, 46, 0.85);
-    bg.setPosition(x, y);
-    this.rects.push({ r: new Phaser.Geom.Rectangle(x, y, 380, 46), visible: () => true });
-    addArt(this, 'icon.supplies', x + 22, y + 23);
-    this.suppliesText = text(this, x + 38, y + 23, '', 22, Palette.uiAmber, '800').setOrigin(0, 0.5);
-    addArt(this, 'icon.integrity', x + 140, y + 23);
-    this.integrityText = text(this, x + 156, y + 23, '', 22, Palette.fdcAccent, '800').setOrigin(0, 0.5);
-    addArt(this, 'icon.wave', x + 248, y + 23);
-    this.waveText = text(this, x + 264, y + 23, '', 20, Palette.uiText, '800').setOrigin(0, 0.5);
+    const x = 10 + this.inset.left, y = 10 + this.inset.top;
+    const items: { icon: string; color: number; w: number; set: (t: Phaser.GameObjects.Text) => void }[] = [
+      { icon: 'icon.supplies', color: Palette.uiAmber, w: 96, set: (t) => (this.suppliesText = t) },
+      { icon: 'icon.integrity', color: Palette.fdcAccent, w: 92, set: (t) => (this.integrityText = t) },
+      { icon: 'icon.wave', color: Palette.uiText, w: 70, set: (t) => (this.waveText = t) },
+      { icon: 'icon.power', color: 0x9fe8ff, w: 92, set: (t) => (this.powerText = t) },
+      { icon: 'icon.cap', color: Palette.uiText, w: 70, set: (t) => (this.capText = t) },
+    ];
+    const total = items.reduce((a, i) => a + i.w, 0) + 16;
+    panelBg(this, total, 46, 0.85).setPosition(x, y);
+    this.rects.push({ r: new Phaser.Geom.Rectangle(x, y, total, 46), visible: () => true });
+    let cx = x + 10;
+    for (const it of items) {
+      addArt(this, it.icon, cx + 11, y + 23);
+      it.set(text(this, cx + 26, y + 23, '', 19, it.color, '800').setOrigin(0, 0.5));
+      cx += it.w;
+    }
 
-    const bw = 58, bh = 46, gap = 8;
-    let rx = this.W - 12 - this.inset.right - bw;
+    const bw = 56, bh = 46, gap = 8;
+    let rx = this.W - 10 - this.inset.right - bw;
     const menuBtn = this.addButton(new Button(this, rx, y, bw, bh, '☰', 'dark', '', 22));
     menuBtn.onTap = () => this.openMenu();
     rx -= bw + gap;
@@ -195,27 +228,27 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   private buildBuildBar(): void {
     const w = this.gs.world;
-    const cw = 186, ch = 74, gap = 10;
-    const y = this.H - ch - 12 - this.inset.bottom;
-    let x = 12 + this.inset.left;
-    for (const def of w.buildable) {
-      const btn = this.addButton(new Button(this, x, y, cw, ch, def.name, 'card', '', 16));
-      const icon = addArt(this, def.leadArt ?? def.art, 30, ch / 2).setScale(1.1).setRotation(-Math.PI / 2);
-      const cost = text(this, 56, ch / 2 + 13, '', 16, Palette.uiAmber, '800').setOrigin(0, 0.5);
-      btn.container.add([icon, cost]);
-      btn.label.setOrigin(0, 0.5).setPosition(56, ch / 2 - 12);
-      btn.label.setFontSize(15);
-      setText(cost, `⛁ ${def.tiers[0].cost}`);
-      // Card labels don't use the default centered layout, so keep them put on redraw.
-      const redraw = btn.redraw.bind(btn);
-      btn.redraw = () => {
-        redraw();
-        btn.label.setPosition(56, ch / 2 - 12 + (btn.pressed ? 2 : 0));
-      };
-      btn.redraw();
-      this.cards.push({ btn, def });
+    const cw = 88, ch = 84, gap = 8;
+    const y = this.H - ch - 10 - this.inset.bottom;
+    let x = 10 + this.inset.left;
+    const ids = [...w.mission.units, ...w.mission.buildings];
+    ids.forEach((id, i) => {
+      const isUnit = w.mission.units.includes(id);
+      if (!isUnit && i === w.mission.units.length) x += 10; // gap between squads and buildings
+      const name = isUnit ? getUnit(id).name : getBuilding(id).name;
+      const cost = isUnit ? getUnit(id).tiers[0].cost : getBuilding(id).tiers[0].cost;
+      const btn = this.addButton(new Button(this, x, y, cw, ch, '', 'card', '', 12));
+      const iconId = isUnit ? trooperArt({ def: getUnit(id), spec: null }, 0) : getBuilding(id).art;
+      const icon = addArt(this, iconId, cw / 2, 30);
+      if (isUnit) {
+        icon.setRotation(-Math.PI / 2).setScale(icon.scale * 1.55);
+      } else icon.setScale(icon.scale * 0.62);
+      const label = text(this, cw / 2, 58, name.replace(' Squad', '').replace(' Weapons', '').replace(' Team', ''), 11, Palette.uiText, '700').setOrigin(0.5);
+      const costText = text(this, cw / 2, 73, `⛁ ${cost}`, 13, Palette.uiAmber, '800').setOrigin(0.5);
+      btn.container.add([icon, label, costText]);
+      this.cards.push({ btn, id, cost, isUnit, costText });
       x += cw + gap;
-    }
+    });
   }
 
   private buildPlacement(): void {
@@ -242,28 +275,29 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.rects.push({ r: this.previewRect, visible: () => this.preview.visible });
   }
 
-  private buildSquadPanel(): void {
-    const pw = 286, ph = 318;
+  private buildPanel(): void {
     this.panel = this.add.container(0, 0).setVisible(false);
-    const bg = panelBg(this, pw, ph);
-    this.panelTitle = text(this, 16, 16, '', 19, Palette.uiAmber, '900');
-    this.panelInfo = text(this, 16, 48, '', 14, Palette.uiText, '600').setLineSpacing(5);
-    this.closeBtn = this.addButton(new Button(this, pw - 52, 8, 44, 40, '✕', 'dark', '', 17));
+    this.panelBgG = this.add.graphics();
+    this.panelTitle = text(this, 14, 12, '', 18, Palette.uiAmber, '900');
+    this.panelSub = text(this, 14, 36, '', 12, Palette.uiDim, '700').setWordWrapWidth(PANEL_W - 70);
+    this.panelInfo = text(this, 14, 56, '', 13, Palette.uiText, '600').setLineSpacing(3);
+    this.closeBtn = this.addButton(new Button(this, PANEL_W - 50, 8, 42, 40, '✕', 'dark', '', 17));
     this.closeBtn.onTap = () => this.gs.controller.select(null);
-    this.upgradeBtn = this.addButton(new Button(this, 14, 158, pw - 28, 62, 'UPGRADE', 'primary', '', 17));
-    this.upgradeBtn.onTap = () => this.onUpgrade();
-    this.targetBtn = this.addButton(new Button(this, 14, 232, (pw - 38) / 2, 66, 'TARGET', 'secondary', 'First', 15));
+    this.panel.add([this.panelBgG, this.panelTitle, this.panelSub, this.panelInfo, this.closeBtn.container]);
+    for (let i = 0; i < 3; i++) {
+      const a = this.addButton(new ActionButton(this, PANEL_W - 24));
+      this.panel.add(a.container);
+      this.actions.push(a);
+    }
+    const half = (PANEL_W - 34) / 2;
+    this.targetBtn = this.addButton(new Button(this, 12, 0, half, 54, 'TARGET', 'secondary', 'First', 14));
     this.targetBtn.onTap = () => {
-      const s = this.gs.controller.selected;
-      if (s) {
-        this.gs.world.cycleTargetMode(s);
-        sfx.click();
-      }
+      const s = this.gs.controller.selectedSquad;
+      if (s) this.gs.world.cycleTargetMode(s);
     };
-    this.sellBtn = this.addButton(new Button(this, 24 + (pw - 38) / 2, 232, (pw - 38) / 2, 66, 'SELL', 'danger', '', 15));
+    this.sellBtn = this.addButton(new Button(this, 22 + half, 0, half, 54, 'SELL', 'danger', '', 14));
     this.sellBtn.onTap = () => this.onSell();
-    this.panel.add([bg, this.panelTitle, this.panelInfo, this.closeBtn.container, this.upgradeBtn.container, this.targetBtn.container, this.sellBtn.container]);
-    this.panelRect.setSize(pw, ph);
+    this.panel.add([this.targetBtn.container, this.sellBtn.container]);
     this.rects.push({ r: this.panelRect, visible: () => this.panel.visible });
   }
 
@@ -351,7 +385,6 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
         : `Survived ${Math.max(0, w.wavesStarted - 1)} of ${w.totalWaves} waves\nThe Choir broke through.`,
     );
     const g = this.endStars.clear();
-    const stars = w.stars;
     for (let i = 0; i < 3; i++) {
       const cx = 380 / 2 + (i - 1) * 64, cy = 100;
       const pts: Phaser.Math.Vector2[] = [];
@@ -360,7 +393,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
         const a = -Math.PI / 2 + (k * Math.PI) / 5;
         pts.push(new Phaser.Math.Vector2(cx + Math.cos(a) * r, cy + Math.sin(a) * r));
       }
-      g.fillStyle(i < stars ? Palette.uiAmber : 0x3a3d34, 1).fillPoints(pts, true);
+      g.fillStyle(i < w.stars ? Palette.uiAmber : 0x3a3d34, 1).fillPoints(pts, true);
       g.lineStyle(2, 0x000000, 0.5).strokePoints(pts, true);
     }
   }
@@ -374,7 +407,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     return false;
   }
 
-  private activeButtons(): Button[] {
+  private activeButtons(): Tappable[] {
     if (this.modal === 'menu') return this.menuButtons;
     if (this.modal === 'end') return this.endButtons;
     return this.buttons;
@@ -383,23 +416,18 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private onDown(p: Phaser.Input.Pointer): void {
     sfx.unlock();
     const x = p.x / DPR, y = p.y / DPR;
-    if (this.modal === 'none' && this.preview.visible && this.previewRect.contains(x, y)) {
-      this.hidePreview();
-      return;
-    }
     const list = this.activeButtons();
     for (let i = list.length - 1; i >= 0; i--) {
       const b = list[i];
       if (!b.contains(x, y)) continue;
       const card = this.cards.find((c) => c.btn === b);
-      if (card) {
-        this.cardDrag = { pointerId: p.id, unitId: card.def.id, startX: x, startY: y, dragging: false };
-      }
+      if (card) this.cardDrag = { pointerId: p.id, id: card.id, startX: x, startY: y, dragging: false };
       b.pressed = true;
       b.redraw();
       this.pressed.set(p.id, b);
       return;
     }
+    if (this.modal === 'none' && this.preview.visible && this.previewRect.contains(x, y)) this.hidePreview();
   }
 
   private onMove(p: Phaser.Input.Pointer): void {
@@ -407,7 +435,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     if (!d || d.pointerId !== p.id || !p.isDown) return;
     const x = p.x / DPR, y = p.y / DPR;
     if (!d.dragging && Math.hypot(x - d.startX, y - d.startY) > 12) {
-      if (!this.canAfford(d.unitId)) return;
+      if (!this.canPlace(d.id)) return;
       d.dragging = true;
       const b = this.pressed.get(p.id);
       if (b) {
@@ -415,10 +443,14 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
         b.redraw();
         this.pressed.delete(p.id);
       }
-      if (this.gs.controller.ghost?.unitId !== d.unitId) this.gs.beginPlacementAtViewCenter(d.unitId);
+      if (this.gs.controller.ghost?.unitId !== d.id) this.gs.beginPlacementAtViewCenter(d.id);
     }
-    // The ghost floats above the finger so you can see where it's going.
-    if (d.dragging) this.gs.moveGhostToScreen(x, y - 64);
+    if (d.dragging) {
+      // The ghost floats above the finger so you can see where it's going.
+      this.dragPos.x = x;
+      this.dragPos.y = y;
+      this.gs.moveGhostToScreen(x, y - 64);
+    }
   }
 
   private onUp(p: Phaser.Input.Pointer): void {
@@ -427,7 +459,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     if (d && d.pointerId === p.id && d.dragging) {
       this.cardDrag = null;
       // Dropped back onto the build bar → cancel.
-      if (y > this.H - HUD.bottom) this.gs.controller.cancelPlacement();
+      if (y > this.H - HUD.bottom + 10 && x < this.cards[this.cards.length - 1].btn.container.x + 100) this.gs.controller.cancelPlacement();
       return;
     }
     const b = this.pressed.get(p.id);
@@ -437,7 +469,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     b.redraw();
     if (d && d.pointerId === p.id) {
       this.cardDrag = null;
-      this.onCardTap(d.unitId);
+      this.onCardTap(d.id);
       return;
     }
     if (b.contains(x, y) && b.visible) {
@@ -452,46 +484,44 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   // ================================================================== actions
 
-  private canAfford(unitId: string): boolean {
-    const cost = getUnit(unitId).tiers[0].cost;
-    if (this.gs.world.supplies >= cost) return true;
-    this.toast(`Need ⛁ ${cost} supplies`);
-    sfx.error();
-    return false;
+  /** Can this card be placed right now? Shows why not. */
+  private canPlace(id: string): boolean {
+    const card = this.cards.find((c) => c.id === id)!;
+    const w = this.gs.world;
+    if (card.isUnit && w.capUsed + getUnit(id).cap > w.capMax) {
+      this.toast(`Command Cap full (${w.capUsed}/${w.capMax}). Sell a squad first`);
+      sfx.error();
+      return false;
+    }
+    if (w.supplies < card.cost) {
+      this.toast(`Need ⛁ ${card.cost} supplies`);
+      sfx.error();
+      return false;
+    }
+    return true;
   }
 
-  private onCardTap(unitId: string): void {
+  private onCardTap(id: string): void {
     const c = this.gs.controller;
-    if (c.ghost?.unitId === unitId) {
+    if (c.ghost?.unitId === id) {
       c.cancelPlacement();
       return;
     }
-    if (!this.canAfford(unitId)) return;
+    if (!this.canPlace(id)) return;
     sfx.click();
-    this.gs.beginPlacementAtViewCenter(unitId);
-  }
-
-  private onUpgrade(): void {
-    const s = this.gs.controller.selected;
-    if (!s) return;
-    const cost = this.gs.world.upgradeCost(s);
-    if (cost === null) return;
-    if (!this.gs.world.upgrade(s)) {
-      this.toast(`Need ⛁ ${cost} supplies`);
-      sfx.error();
-    }
+    this.gs.beginPlacementAtViewCenter(id);
   }
 
   private onSell(): void {
-    const s = this.gs.controller.selected;
-    if (!s) return;
+    const p = this.gs.controller.selected;
+    if (!p) return;
     // Two taps to sell, so a stray finger can't sell a veteran squad.
     if (this.sellArmed <= 0) {
       this.sellArmed = 2.5;
       return;
     }
     this.sellArmed = 0;
-    this.gs.world.sell(s);
+    this.gs.world.sell(p);
     this.gs.controller.select(null);
   }
 
@@ -526,14 +556,11 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       this.previewBody.add([icon, name, hint]);
       y += 32 + hint.height;
     }
-    setText(this.previewTitle, `WAVE ${waveIndex + 1} INTEL`);
+    setText(this.previewTitle, `WAVE ${waveIndex + 1} INTEL  ·  tap to close`);
     const ph = y + 12;
-    this.previewBg.clear();
-    const bg = panelBg(this, pw, ph, 0.94);
     this.previewBg.destroy();
-    this.previewBg = bg;
-    this.preview.addAt(bg, 0);
-    this.preview.setSize(pw, ph);
+    this.previewBg = panelBg(this, pw, ph, 0.94);
+    this.preview.addAt(this.previewBg, 0);
     this.previewRect.setSize(pw, ph);
     this.preview.setVisible(true);
   }
@@ -545,18 +572,26 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   toast(message: string): void {
     setText(this.toastText, message);
-    this.toastTimer = 2.2;
+    this.toastTimer = 2.4;
   }
 
   private onSelectionChange(): void {
     this.sellArmed = 0;
-    const s = this.gs.controller.selected;
-    this.panel.setVisible(!!s && this.modal === 'none');
-    if (s) {
-      const p = this.gs.rig.worldToScreen(s.x, s.y);
-      this.panelSide = p.x / DPR > this.W * 0.55 ? 'left' : 'right';
-      this.updatePanel(0);
-    }
+    const sel = this.gs.controller.selected;
+    this.panel.setVisible(!!sel && this.modal === 'none');
+    if (!sel) return;
+    const p = this.gs.rig.worldToScreen(sel.x, sel.y);
+    const sx = p.x / DPR, sy = p.y / DPR;
+    this.panelSide = sx > this.W * 0.5 ? 'left' : 'right';
+    this.updatePanel(0);
+    // Keep the selection visible: if it ended up under the panel or a HUD bar, glide the camera.
+    const panelL = this.panelSide === 'right' ? this.W - PANEL_W - 20 : PANEL_W + 20;
+    const clearL = this.panelSide === 'right' ? 20 : panelL;
+    const clearR = this.panelSide === 'right' ? panelL : this.W - 20;
+    const top = HUD.top + 60, bottom = this.H - HUD.bottom - 80;
+    const tx = Phaser.Math.Clamp(sx, clearL + 60, clearR - 60);
+    const ty = Phaser.Math.Clamp(sy, top, bottom);
+    if (Math.abs(tx - sx) > 2 || Math.abs(ty - sy) > 2) this.gs.rig.glideTo(sel.x, sel.y, tx, ty);
   }
 
   // ================================================================== per-frame
@@ -569,7 +604,10 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     // Top bar
     setText(this.suppliesText, `${Math.floor(w.supplies)}`);
     setText(this.integrityText, `${w.integrity}/${w.maxIntegrity}`);
-    setText(this.waveText, `WAVE ${Math.max(1, w.wavesStarted)}/${w.totalWaves}`);
+    setText(this.waveText, `${Math.max(1, w.wavesStarted)}/${w.totalWaves}`);
+    setText(this.powerText, `${w.power} T${w.tech}`);
+    setText(this.capText, `${w.capUsed}/${w.capMax}`);
+    this.capText.setColor(w.capUsed >= w.capMax ? '#ff8a7a' : css(Palette.uiText));
     this.speedBtn.setLabel(`${gs.speed}×`).setActive(gs.speed > 1);
     this.pauseBtn.setLabel(gs.paused ? '▶' : '❚❚').setActive(gs.paused);
     this.pausedBanner.setVisible(gs.paused && this.modal === 'none');
@@ -582,15 +620,21 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     // Cards
     const ghost = gs.controller.ghost;
     for (const c of this.cards) {
-      c.btn.setEnabled(w.supplies >= c.def.tiers[0].cost && !w.isOver);
-      c.btn.setActive(ghost?.unitId === c.def.id);
+      const capped = c.isUnit && w.capUsed + getUnit(c.id).cap > w.capMax;
+      c.btn.setEnabled(w.supplies >= c.cost && !capped && !w.isOver);
+      c.btn.setActive(ghost?.unitId === c.id);
+      setText(c.costText, capped ? 'CAP FULL' : `⛁ ${c.cost}`);
+    }
+
+    // Edge-scroll while dragging a ghost from a card.
+    if (this.cardDrag?.dragging) {
+      if (gs.router.edgePan(this.dragPos.x, this.dragPos.y, dt, HUD)) gs.moveGhostToScreen(this.dragPos.x, this.dragPos.y - 64);
     }
 
     this.updatePlacementUi();
     this.updateWaveUi(dt);
     this.updatePanel(dt);
 
-    // Toast
     this.toastTimer -= dt;
     this.toastText.setAlpha(Phaser.Math.Clamp(this.toastTimer * 2, 0, 1));
 
@@ -599,16 +643,15 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   private updatePlacementUi(): void {
     const gh = this.gs.controller.ghost;
-    const show = !!gh && this.modal === 'none' && !this.cardDrag?.dragging;
+    const show = !!gh && this.modal === 'none' && !this.cardDrag?.dragging && !this.gs.controller.dragging;
     this.okBtn.setVisible(show);
     this.cancelBtn.setVisible(show);
     this.reasonText.setVisible(!!gh && !gh.check.ok);
     if (!gh) return;
     const p = this.gs.rig.worldToScreen(gh.check.x, gh.check.y);
     const sx = p.x / DPR, sy = p.y / DPR;
-    // Buttons sit beside the ghost, flipped to whichever side has room.
     const right = sx < this.W - 170;
-    const bx = right ? sx + 46 : sx - 46 - 60;
+    const bx = right ? sx + 50 : sx - 50 - 60;
     const by = Phaser.Math.Clamp(sy - 60, HUD.top + 8, this.H - HUD.bottom - 130);
     this.okBtn.setPosition(bx, by).setEnabled(gh.check.ok);
     this.cancelBtn.setPosition(bx, by + 66);
@@ -631,14 +674,13 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     }
     // Anchor near the enemy breach (start of the road), clamped on screen.
     const start = w.map.paths[0].points[0];
-    const second = w.map.paths[0].points[1];
-    const ax = Phaser.Math.Clamp(start.x, 60, w.map.width - 60) + (second.x - start.x) * 0.05;
+    const ax = Phaser.Math.Clamp(start.x, 60, w.map.width - 60);
     const ay = Phaser.Math.Clamp(start.y, 60, w.map.height - 60);
     const p = gs.rig.worldToScreen(ax, ay);
     const bw = this.waveBtn.w, bh = this.waveBtn.h;
     const panelRight = this.panel.visible && this.panelSide === 'right';
-    const maxX = this.W - bw - 12 - this.inset.right - (panelRight ? 300 : 0);
-    const x = Phaser.Math.Clamp(p.x / DPR - bw / 2, 12 + this.inset.left, maxX);
+    const maxX = this.W - bw - 10 - this.inset.right - (panelRight ? PANEL_W + 14 : 0);
+    const x = Phaser.Math.Clamp(p.x / DPR - bw / 2, 10 + this.inset.left, maxX);
     const y = Phaser.Math.Clamp(p.y / DPR + 30, HUD.top + 8, this.H - HUD.bottom - bh - 10);
     this.waveBtn.setPosition(x, y);
     const next = w.wavesStarted + 1;
@@ -647,60 +689,148 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     } else {
       const armed = this.preview.visible && this.previewFor === w.wavesStarted;
       this.waveBtn.setLabel(armed ? `CALL NOW` : `WAVE ${next} ▸`, armed ? `+${w.callEarlyBonus} supplies` : `${Math.ceil(w.countdown)}s · tap for intel`);
-      // Countdown bar under the button.
       const k = Phaser.Math.Clamp(w.countdown / w.countdownTotal, 0, 1);
       this.waveBar.fillStyle(0x000000, 0.6).fillRoundedRect(x, y + bh + 6, bw, 6, 3);
       this.waveBar.fillStyle(Palette.uiAmber, 1).fillRoundedRect(x, y + bh + 6, bw * k, 6, 3);
     }
-    // Intel panel next to the button (below it, or above if near the bottom).
     const pw = this.previewRect.width, ph = this.previewRect.height;
-    let px = Phaser.Math.Clamp(x + bw - pw, 12, this.W - pw - 12);
+    let px = Phaser.Math.Clamp(x + bw - pw, 10, this.W - pw - 10);
     let py = y + bh + 18;
     if (py + ph > this.H - HUD.bottom) py = y - ph - 10;
-    if (this.panel.visible && this.panelSide === 'right' && px + pw > this.W - 300) px = this.W - 300 - pw;
+    if (this.panel.visible && this.panelSide === 'right' && px + pw > this.W - PANEL_W - 20) px = this.W - PANEL_W - 24 - pw;
     this.preview.setPosition(px, py);
     this.previewRect.setPosition(px, py);
   }
 
+  // ---------------------------------------------------------------- selection panel
+
   private updatePanel(dt: number): void {
-    const s = this.gs.controller.selected;
-    const show = !!s && this.modal === 'none' && !this.gs.controller.ghost;
+    const sel = this.gs.controller.selected;
+    const show = !!sel && this.modal === 'none' && !this.gs.controller.ghost;
     this.panel.setVisible(show);
-    if (!s || !show) return;
-    const w = this.gs.world;
-    const pw = 286;
-    const px = this.panelSide === 'right' ? this.W - pw - 12 - this.inset.right : 12 + this.inset.left;
-    const py = HUD.top + 10;
-    this.panel.setPosition(px, py);
-    this.panelRect.setPosition(px, py);
-
-    setText(this.panelTitle, `${s.def.name.toUpperCase()}  ${ROMAN[s.tier]}`);
-    setText(this.panelInfo, this.describe(s));
-
-    const cost = w.upgradeCost(s);
-    if (cost === null) {
-      this.upgradeBtn.setLabel('MAX TIER', 'Specializations unlock in M2').setEnabled(false);
-    } else {
-      this.upgradeBtn.setLabel(`UPGRADE → ${ROMAN[s.tier + 1]}   ⛁ ${cost}`, s.def.tiers[s.tier + 1].blurb).setEnabled(w.supplies >= cost && !w.isOver);
-    }
-    this.targetBtn.setLabel('TARGET', TARGET_LABEL[s.targetMode]);
+    if (!sel || !show) return;
     this.sellArmed = Math.max(0, this.sellArmed - dt);
-    this.sellBtn.setLabel(this.sellArmed > 0 ? 'CONFIRM?' : 'SELL', `+⛁ ${w.sellValue(s)}`);
+
+    let y = sel.kind === 'squad' ? this.fillSquadPanel(sel) : this.fillBuildingPanel(sel);
+    // Sell (and target) row.
+    this.sellBtn.setLabel(this.sellArmed > 0 ? 'CONFIRM?' : 'SELL', `+⛁ ${this.gs.world.sellValue(sel)}`);
+    this.targetBtn.setVisible(sel.kind === 'squad');
+    if (sel.kind === 'squad') this.targetBtn.setLabel('TARGET', TARGET_LABEL[sel.targetMode]);
+    this.targetBtn.setPosition(12, y);
+    this.sellBtn.setPosition(sel.kind === 'squad' ? 22 + (PANEL_W - 34) / 2 : 12, y);
+    this.sellBtn.w = sel.kind === 'squad' ? (PANEL_W - 34) / 2 : PANEL_W - 24;
+    this.sellBtn.label.setX(this.sellBtn.w / 2);
+    this.sellBtn.sub.setX(this.sellBtn.w / 2);
+    y += 54 + 12;
+
+    // Panel geometry.
+    const maxH = this.H - HUD.top - 10 - HUD.bottom;
+    const h = Math.min(y, maxH);
+    if (h !== this.panelH) {
+      this.panelH = h;
+      const g = this.panelBgG.clear();
+      g.fillStyle(0x000000, 0.35).fillRoundedRect(3, 5, PANEL_W, h, 12);
+      g.fillStyle(Palette.uiPanel, 0.94).fillRoundedRect(0, 0, PANEL_W, h, 12);
+      g.lineStyle(1.5, 0x3a3d34, 1).strokeRoundedRect(0, 0, PANEL_W, h, 12);
+      this.sellBtn.redraw();
+    }
+    const px = this.panelSide === 'right' ? this.W - PANEL_W - 10 - this.inset.right : 10 + this.inset.left;
+    const py = HUD.top + 8;
+    this.panel.setPosition(px, py);
+    this.panelRect.setTo(px, py, PANEL_W, h);
+  }
+
+  private fillSquadPanel(s: Squad): number {
+    const w = this.gs.world;
+    const title = s.spec ? s.spec.name : s.def.name;
+    setText(this.panelTitle, `${title.toUpperCase()}  ${ROMAN[s.tier]}${s.rank ? '  ' + '★'.repeat(s.rank) : ''}`);
+    const nextRank = Balance.veterancyXp[s.rank];
+    setText(this.panelSub, `${s.spec ? s.spec.blurb : s.def.role}${nextRank ? `  ·  XP ${s.xp}/${nextRank}` : '  ·  Max veterancy'}`);
+    setText(this.panelInfo, this.describe(s));
+    this.panelInfo.setY(40 + this.panelSub.height);
+    let y = this.panelInfo.y + this.panelInfo.height + 10;
+
+    const place = (i: number, title: string, cost: string, desc: string, state: 'buy' | 'locked' | 'owned' | 'poor', accent?: number) => {
+      const a = this.actions[i];
+      a.setVisible(true).setPosition(12, y);
+      y += a.set(title, cost, desc, state, accent) + 8;
+    };
+    let used = 0;
+    const up = w.checkUpgrade(s);
+    if (up) {
+      const next = s.def.tiers[s.tier + 1];
+      const state = up.ok ? 'buy' : up.reason.startsWith('Needs') ? 'locked' : 'poor';
+      place(used++, `Upgrade to ${ROMAN[s.tier + 1]}`, `⛁ ${up.cost}`, state === 'locked' ? `🔒 ${up.reason}. ${next.blurb}` : next.blurb, state);
+      this.actions[used - 1].onTap = () => this.buy(() => w.upgrade(s), up.reason);
+    } else if (!s.spec) {
+      for (const spec of specsOf(s.def)) {
+        const c = w.checkSpecialize(s, spec);
+        const state = c.ok ? 'buy' : c.reason.startsWith('Needs') ? 'locked' : 'poor';
+        place(used++, spec.name, `⛁ ${spec.cost}`, state === 'locked' ? `🔒 ${c.reason}. ${spec.blurb}` : spec.blurb, state, Palette.fdcAccent);
+        this.actions[used - 1].onTap = () => this.buy(() => w.specialize(s, spec.id), c.reason);
+      }
+    } else {
+      for (const a of s.spec.abilities) {
+        const c = w.checkAbility(s, a);
+        const owned = s.abilities.includes(a.id);
+        const state = owned ? 'owned' : c.ok ? 'buy' : c.reason.startsWith('Needs') ? 'locked' : 'poor';
+        place(used++, a.name, owned ? '✓ OWNED' : `⛁ ${a.cost}`, state === 'locked' ? `🔒 ${c.reason}. ${a.desc}` : a.desc, state, Palette.fdcAccent);
+        this.actions[used - 1].onTap = () => this.buy(() => w.buyAbility(s, a.id), c.reason);
+      }
+    }
+    for (let i = used; i < this.actions.length; i++) this.actions[i].setVisible(false);
+    return y;
+  }
+
+  private fillBuildingPanel(b: Building): number {
+    const w = this.gs.world;
+    const tier = b.def.tiers[b.tier];
+    setText(this.panelTitle, `${b.def.name.toUpperCase()}  ${ROMAN[b.tier]}`);
+    setText(this.panelSub, b.def.role);
+    const lines = [
+      tier.income ? `Pays ⛁ ${tier.income} at the start of every wave` : '',
+      tier.power ? `Provides ⚡ ${tier.power} Power (you have ${w.power}, Tech ${w.tech})` : '',
+      tier.power ? `Tech 2 at ⚡${Balance.techPower[0]}, Tech 3 at ⚡${Balance.techPower[1]}` : '',
+      'Uses no Command Cap. Enemies ignore it.',
+    ].filter(Boolean);
+    setText(this.panelInfo, lines.join('\n'));
+    this.panelInfo.setY(40 + this.panelSub.height);
+    let y = this.panelInfo.y + this.panelInfo.height + 10;
+    const up = w.checkUpgrade(b);
+    for (const a of this.actions) a.setVisible(false);
+    if (up) {
+      const a = this.actions[0];
+      a.setVisible(true).setPosition(12, y);
+      y += a.set(`Upgrade to ${ROMAN[b.tier + 1]}`, `⛁ ${up.cost}`, b.def.tiers[b.tier + 1].blurb, up.ok ? 'buy' : 'poor') + 8;
+      a.onTap = () => this.buy(() => w.upgrade(b), up.reason);
+    }
+    return y;
+  }
+
+  private buy(fn: () => boolean, reason: string): void {
+    if (!fn()) {
+      this.toast(reason || 'Not available');
+      sfx.error();
+    }
   }
 
   private describe(s: Squad): string {
     const w = this.gs.world;
-    const tier = s.def.tiers[s.tier];
-    const wpn = tier.weapon;
+    const st = s.stats;
     const alive = s.troopers.filter((t) => t.alive).length;
-    const dps = s.def.crewServed ? wpn.damage * wpn.rof : wpn.damage * wpn.rof * s.def.troopers;
+    const shooters = s.def.crewServed ? 1 : s.def.troopers;
+    const dps = st.damage * st.rof * shooters;
+    const type = st.damageType === 'ap' ? 'Armor-piercing' : st.damageType === 'explosive' ? 'Explosive' : 'Ballistic';
+    const cover = s.cover ? getCover(s.cover.type) : null;
     const lines = [
-      `${wpn.damageType === 'explosive' ? 'Explosive' : 'Ballistic'} · ${Math.round(dps)} dmg/s${wpn.splashRadius ? ' · splash' : ''}`,
-      `Range ${Math.round(w.rangeOf(s))} · Arc ${s.def.arcDeg}°`,
-      `Troopers ${alive}/${s.def.troopers} · ${tier.trooperHp} hp each`,
-      s.cover ? `In ${getCover(s.cover.type).name}: −${Math.round(getCover(s.cover.type).damageReduction * 100)}% damage` : 'No cover (drag the flag into some)',
-      s.down ? `DOWN: back in ${Math.ceil(s.downTimer)}s` : `Kills ${s.kills}`,
+      `${type} · ${Math.round(dps)} dmg/s${st.splash ? ' · splash' : ''} · range ${Math.round(w.rangeOf(s))}`,
+      `Troopers ${alive}/${s.def.troopers} · ${Math.round(st.hp)} hp · blocks ${st.blockCap}`,
+      cover ? `In ${cover.name}: −${Math.round(cover.damageReduction * 100)}% damage taken` : 'No cover: drag the flag into some',
     ];
+    if (st.turretCount) lines.push(`${st.turretCount} turrets · ${Math.round((st.turretWeapon?.damage ?? 0) * st.turretDamage * (st.turretWeapon?.rof ?? 0))} dmg/s each`);
+    if (st.aura) lines.push(`Aura: ${[st.aura.heal ? `heal ${st.aura.heal}/s` : '', st.aura.rof > 1 ? `+${Math.round((st.aura.rof - 1) * 100)}% fire rate` : '', st.aura.reinforce > 1 ? 'fast reinforce' : ''].filter(Boolean).join(', ')}`);
+    if (s.down) lines.push(`DOWN: back in ${Math.ceil(s.downTimer)}s`);
+    else lines.push(`Kills ${s.kills}`);
     return lines.join('\n');
   }
 }

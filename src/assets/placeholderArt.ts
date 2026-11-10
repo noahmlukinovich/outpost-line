@@ -7,13 +7,18 @@
  */
 import Phaser from 'phaser';
 import { Palette } from './palette';
+import { SOLDIER_H, SOLDIER_ORIGIN, SOLDIER_W, SoldierLooks, drawSoldier } from './soldiers';
+import { depot, reactor, turret } from './structures';
 
 type G = Phaser.GameObjects.Graphics;
 
 const v2 = (pts: { x: number; y: number }[]) => pts.map((p) => new Phaser.Math.Vector2(p.x, p.y));
 
-/** Textures are drawn at 2x so they stay sharp when the camera zooms in. */
-const S = 2;
+/** Textures are drawn at 3× so they stay sharp on Retina screens and when zoomed in. */
+const S = 3;
+
+/** Sprite origins for art whose rotation center isn't the texture center (soldiers). */
+export const ART_ORIGINS: Record<string, { x: number; y: number }> = {};
 
 function bake(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: G) => void): void {
   if (scene.textures.exists(key)) return;
@@ -24,15 +29,6 @@ function bake(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: 
   g.destroy();
 }
 
-function trooper(g: G): void {
-  // 24x24 box, center 12,12, facing right.
-  g.fillStyle(Palette.fdcWeapon, 1).fillRect(12, 13, 11, 2.4); // rifle
-  g.fillStyle(Palette.fdcBody, 1).fillEllipse(11, 12, 12, 17); // shoulders / armor
-  g.fillStyle(0x4a5662, 1).fillEllipse(9, 12, 6, 13); // backpack shading
-  g.fillStyle(Palette.fdcHelmet, 1).fillCircle(12.5, 12, 4.6); // helmet
-  g.fillStyle(Palette.fdcAccent, 1).fillRect(15.6, 10.4, 1.6, 3.2); // visor
-  g.lineStyle(1, 0x0b0d0f, 0.8).strokeEllipse(11, 12, 12, 17);
-}
 
 function skitter(g: G): void {
   // 28x28 box, center 14,14, facing right. A six-legged bio-beast with a glowing core.
@@ -133,16 +129,6 @@ function groundTexture(scene: Phaser.Scene, key: string, size: number): void {
 }
 
 
-function heavyGunner(g: G): void {
-  // 24x24, facing right: trooper shouldering a stubby grenade launcher.
-  g.fillStyle(0x3d4a3a, 1).fillRect(10, 12.6, 14, 4.6); // launcher tube
-  g.fillStyle(Palette.fdcWeapon, 1).fillRect(20, 12, 3, 5.6); // muzzle
-  g.fillStyle(Palette.fdcBody, 1).fillEllipse(11, 12, 13, 18);
-  g.fillStyle(0x6b5a3a, 1).fillRoundedRect(3, 6, 6, 12, 2); // ammo pack
-  g.fillStyle(Palette.fdcHelmet, 1).fillCircle(12.5, 11.5, 4.8);
-  g.fillStyle(Palette.fdcAccent, 1).fillRect(15.8, 10, 1.6, 3.2);
-  g.lineStyle(1, 0x0b0d0f, 0.8).strokeEllipse(11, 12, 13, 18);
-}
 
 function warden(g: G): void {
   // 32x32, facing right: hulking shielded warrior with an energy lance.
@@ -286,9 +272,23 @@ function iconWave(g: G): void {
 
 /** Generate every placeholder texture. Call once from the Boot scene. */
 export function generatePlaceholderArt(scene: Phaser.Scene): void {
-  bake(scene, 'unit.trooper', 24, 24, trooper);
-  bake(scene, 'unit.rifle', 24, 24, trooper);
-  bake(scene, 'unit.heavy', 24, 24, heavyGunner);
+  for (const [id, look] of Object.entries(SoldierLooks)) {
+    bake(scene, id, SOLDIER_W, SOLDIER_H, (g) => drawSoldier(g, look));
+    ART_ORIGINS[id] = SOLDIER_ORIGIN;
+  }
+  bake(scene, 'unit.trooper', SOLDIER_W, SOLDIER_H, (g) => drawSoldier(g, SoldierLooks['unit.rifle']));
+  ART_ORIGINS['unit.trooper'] = SOLDIER_ORIGIN;
+  bake(scene, 'unit.turret', 32, 32, turret);
+  bake(scene, 'bld.depot', 64, 64, depot);
+  bake(scene, 'bld.reactor', 64, 64, reactor);
+  bake(scene, 'fx.mark', 24, 24, (g) => {
+    g.lineStyle(2, 0xff4a3a, 1).strokeCircle(12, 12, 7);
+    g.lineBetween(12, 1, 12, 7).lineBetween(12, 17, 12, 23).lineBetween(1, 12, 7, 12).lineBetween(17, 12, 23, 12);
+  });
+  bake(scene, 'fx.stun', 24, 12, (g) => {
+    g.fillStyle(0xffe066, 1);
+    for (const x of [4, 12, 20]) g.fillTriangle(x, 1, x + 2.5, 6, x - 2.5, 6).fillTriangle(x, 11, x + 2.5, 6, x - 2.5, 6);
+  });
   bake(scene, 'enemy.warden', 32, 32, warden);
   bake(scene, 'enemy.ironback', 48, 48, ironback);
   bake(scene, 'cover.trench', 64, 36, trench);
@@ -306,6 +306,16 @@ export function generatePlaceholderArt(scene: Phaser.Scene): void {
   bake(scene, 'icon.supplies', 24, 24, iconSupplies);
   bake(scene, 'icon.integrity', 24, 24, iconIntegrity);
   bake(scene, 'icon.wave', 24, 24, iconWave);
+  bake(scene, 'icon.power', 24, 24, (g) => {
+    g.fillStyle(0x9fe8ff, 1).fillTriangle(14, 1, 5, 13, 12, 13).fillTriangle(10, 23, 19, 10, 12, 10);
+  });
+  bake(scene, 'icon.cap', 24, 24, (g) => {
+    g.fillStyle(Palette.uiText, 1);
+    for (const [x, y] of [[7, 9], [17, 9], [12, 16]]) {
+      g.fillCircle(x, y - 3, 3);
+      g.fillRoundedRect(x - 4, y + 1, 8, 5, 2);
+    }
+  });
   bake(scene, 'enemy.skitter', 28, 28, skitter);
   bake(scene, 'cover.sandbags', 40, 60, sandbags);
   radialTexture(scene, 'fx.shadow', 64, '0,0,0', [[0, 0.6], [0.5, 0.4], [1, 0]]);

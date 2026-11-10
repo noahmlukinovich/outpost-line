@@ -5,8 +5,9 @@ Design: see [GAME_DESIGN.md](GAME_DESIGN.md).
 
 **Play:** https://noahmlukinovich.github.io/outpost-line/ (live once GitHub Pages is set up, see below)
 
-**Status:** Milestone 1: one full mission (Firebase Ridgeline, 10 waves) with free placement,
-cover, firing arcs, rally points, Rifle + Heavy Weapons squads (tiers I–III) and three enemy types.
+**Status:** Milestone 2: one full mission (Firebase Ridgeline, 10 waves) with four squad types
+(Rifle, Heavy Weapons, Sniper, Engineers), eight specializations with abilities, Supply Depots,
+Reactors (Power → Tech levels), Command Cap and veterancy.
 
 ---
 
@@ -41,6 +42,14 @@ in the installed app or a browser tab, whether offline mode is ready, the screen
 | Pan / zoom | Drag empty ground / pinch with two fingers |
 | Start / call waves | Tap **START WAVE**. Between waves, tap once for intel, again to **call early** for bonus supplies. |
 | Pause, speed, settings | Top-right buttons: pause, 1×/2×, menu (damage numbers, shake, sound, restart). |
+
+**Economy & tech (M2):**
+- **Supply Depot** pays supplies at the start of every wave (upgrade it for more).
+- **Reactor** provides Power. Power 6 = **Tech 2** (tier III upgrades and specializations),
+  Power 15 = **Tech 3** (the strongest abilities). Locked items show 🔒 and what they need.
+- **Command Cap** (top bar, people icon) limits how many squads you can field. Buildings are free.
+- After tier III a squad picks one of two **specializations**, then buys up to three **abilities**.
+- Squads earn **veterancy** stars from kills (+damage, +fire rate, +HP). Selling loses them.
 
 Rules of thumb: Skitters swarm (use Heavy Weapons splash), Wardens have regenerating shields
 and shoot back (focus fire, use cover), Ironbacks are heavily armored and go berserk when hurt
@@ -81,6 +90,9 @@ Open http://localhost:5173 in Chrome. Saving a file reloads the game instantly.
 | `npm run build` | Production build into `dist/` |
 | `npm run preview` | Serve the production build (with the service worker active) |
 | `npm run icons` | Regenerate PNG icons from `public/icons/icon.svg` |
+
+**Art gallery:** with `npm run dev` running, open http://localhost:5173/gallery.html to see every
+placeholder sprite enlarged (add `?zoom=6` to get closer). Useful when trying a sprite pack.
 
 ### Testing on the iPad over your Wi-Fi (from a Chromebook)
 
@@ -137,12 +149,16 @@ interpolates between steps. That's why 2× speed, pause and the headless balance
 
 All numbers live in `src/data/`, with a comment on every field:
 
-- **`units.ts`**: cost, damage, fire rate, range, HP per tier; arc width; leash; how many enemies a squad can block.
+- **`units.ts`**: cost, damage, fire rate, range, HP per tier; tech needed; arc width; leash; how many enemies a squad can block.
+- **`specs.ts`**: the 8 specializations and their abilities. Abilities are lists of *effects*
+  (e.g. `{ kind: 'onHit', status: 'slow', strength: 0.45, duration: 1 }`). Every effect type is listed
+  and explained in `types.ts` (search for `export type Effect`), so you can invent new abilities by combining them.
+- **`buildings.ts`**: Supply Depot income and Reactor power per tier.
 - **`enemies.ts`**: HP, shields (and regen), armor, speed, bounty, how much integrity they cost if they leak, attacks.
 - **`cover.ts`**: damage reduction and range bonus per cover type.
-- **`balance.ts`**: global rules: sell refund, wave countdown, call-early bonus, reinforce/down timers, armor pierce per damage type, star thresholds.
+- **`balance.ts`**: global rules: Power needed for Tech 2/3, veterancy XP and bonuses, sell refund, wave countdown, call-early bonus, reinforce/down timers, armor pierce per damage type, star thresholds.
 - **`waves/outpost01.ts`**: what spawns in each wave, when, and the clear bonus.
-- **`missions.ts`**: starting supplies, integrity, which units are available.
+- **`missions.ts`**: starting supplies, integrity, Command Cap, which units/buildings are available.
 
 Edit, save, and the dev server reloads. Run `npm run balance` to see how a scripted "good",
 "half-hearted" and "lazy" commander fare after your change. If you mistype a field name,

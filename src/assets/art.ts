@@ -12,7 +12,7 @@
  * If a file fails to load, the placeholder is used instead, so the game never breaks.
  */
 import Phaser from 'phaser';
-import { ART_SCALE } from './placeholderArt';
+import { ART_ORIGINS, ART_SCALE } from './placeholderArt';
 
 export interface ArtEntry {
   type: 'generated' | 'image' | 'atlas';
@@ -21,6 +21,9 @@ export interface ArtEntry {
   frame?: string;
   scale?: number;
   rotation?: number;
+  /** Rotation center within the sprite, 0–1 (default 0.5, 0.5). */
+  originX?: number;
+  originY?: number;
 }
 
 export interface Manifest {
@@ -32,6 +35,9 @@ export interface ArtRef {
   key: string;
   frame?: string;
   scale: number;
+  /** Rotation center within the sprite (0–1). */
+  originX: number;
+  originY: number;
   /** Radians to add to the sprite's rotation. */
   rotation: number;
 }
@@ -54,11 +60,11 @@ export function registerArt(scene: Phaser.Scene, manifest: Manifest | undefined)
   for (const [id, e] of Object.entries(manifest?.art ?? {})) {
     const rotation = Phaser.Math.DegToRad(e.rotation ?? 0);
     if (e.type === 'image' && scene.textures.exists(`art:${id}`)) {
-      refs.set(id, { key: `art:${id}`, scale: e.scale ?? 1, rotation });
+      refs.set(id, { key: `art:${id}`, scale: e.scale ?? 1, rotation, originX: e.originX ?? 0.5, originY: e.originY ?? 0.5 });
     } else if (e.type === 'atlas' && e.atlas && e.frame) {
       const key = `atlas:${e.atlas}`;
       if (scene.textures.exists(key) && scene.textures.get(key).has(e.frame)) {
-        refs.set(id, { key, frame: e.frame, scale: e.scale ?? 1, rotation });
+        refs.set(id, { key, frame: e.frame, scale: e.scale ?? 1, rotation, originX: e.originX ?? 0.5, originY: e.originY ?? 0.5 });
       } else console.warn(`[art] ${id}: frame "${e.frame}" not found in atlas "${e.atlas}", using placeholder`);
     } else if (e.type !== 'generated') {
       console.warn(`[art] ${id}: could not load, using placeholder`);
@@ -70,7 +76,8 @@ export function registerArt(scene: Phaser.Scene, manifest: Manifest | undefined)
 export function art(id: string): ArtRef {
   let r = refs.get(id);
   if (!r) {
-    r = { key: id, scale: ART_SCALE, rotation: 0 };
+    const o = ART_ORIGINS[id];
+    r = { key: id, scale: ART_SCALE, rotation: 0, originX: o?.x ?? 0.5, originY: o?.y ?? 0.5 };
     refs.set(id, r);
   }
   return r;
@@ -79,5 +86,5 @@ export function art(id: string): ArtRef {
 /** Create an image for an art ID with the right texture, frame and scale applied. */
 export function addArt(scene: Phaser.Scene, id: string, x = 0, y = 0): Phaser.GameObjects.Image {
   const r = art(id);
-  return scene.add.image(x, y, r.key, r.frame).setScale(r.scale);
+  return scene.add.image(x, y, r.key, r.frame).setScale(r.scale).setOrigin(r.originX, r.originY);
 }

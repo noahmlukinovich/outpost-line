@@ -9,6 +9,7 @@ import Phaser from 'phaser';
 import { DPR, fitCamera, isStandalone, logicalSize, safeAreaInsets } from '../app/display';
 import { pwaStatus } from '../app/pwa';
 import { ART_SCALE } from '../assets/placeholderArt';
+import { addArt } from '../assets/art';
 import { Palette, css } from '../assets/palette';
 import { Pool } from '../core/Pool';
 import { sfx } from '../audio/Sfx';
@@ -138,11 +139,11 @@ export class TitleScene extends Phaser.Scene {
     // Cover + squad
     this.add.image(this.squadX + 28, this.squadY, 'fx.shadow').setDisplaySize(90, 120).setAlpha(0.6).setDepth(4);
     this.add.image(this.squadX + 28, this.squadY, 'cover.sandbags').setScale(UNIT).setDepth(5);
-    const offsets: [number, number][] = [[0, -30], [10, -10], [10, 12], [0, 32]];
+    const offsets: [number, number][] = [[-6, -44], [4, -15], [4, 15], [-6, 44]];
     for (const [ox, oy] of offsets) {
       const x = this.squadX + ox, y = this.squadY + oy;
       const shadow = this.add.image(x + 3, y + 4, 'fx.shadow').setDisplaySize(40, 40).setDepth(6);
-      const img = this.add.image(x, y, 'unit.trooper').setScale(UNIT).setDepth(8);
+      const img = addArt(this, 'unit.trooper', x, y).setScale(UNIT).setDepth(8);
       const muzzle = this.add
         .image(x, y, 'fx.muzzle')
         .setScale(UNIT)
@@ -174,7 +175,7 @@ export class TitleScene extends Phaser.Scene {
       .particles(0, 0, 'fx.spark', {
         speed: { min: 60, max: 220 },
         lifespan: { min: 150, max: 350 },
-        scale: { start: 0.5, end: 0 },
+        scale: { start: 0.33, end: 0 },
         tint: [0xffe7a3, 0xffffff, 0xffb238],
         blendMode: 'ADD',
         emitting: false,
@@ -184,7 +185,7 @@ export class TitleScene extends Phaser.Scene {
       .particles(0, 0, 'fx.spark', {
         speed: { min: 40, max: 160 },
         lifespan: { min: 250, max: 500 },
-        scale: { start: 0.9, end: 0.1 },
+        scale: { start: 0.6, end: 0.07 },
         tint: [Palette.choirBody, Palette.choirCore, Palette.ichor],
         emitting: false,
       })
@@ -193,7 +194,7 @@ export class TitleScene extends Phaser.Scene {
       .particles(0, 0, 'fx.soft', {
         speed: { min: 60, max: 320 },
         lifespan: { min: 250, max: 700 },
-        scale: { start: 0.9, end: 0.1 },
+        scale: { start: 0.6, end: 0.07 },
         alpha: { start: 1, end: 0 },
         tint: [0xffd27a, 0xff8a2b, 0xff5a1f, 0x777777],
         blendMode: 'ADD',
@@ -452,8 +453,8 @@ export class TitleScene extends Phaser.Scene {
 
     if (best && t.cooldown <= 0 && Math.abs(Phaser.Math.Angle.Wrap(desired - t.angle)) < 0.12) {
       t.cooldown = 0.28 + Math.random() * 0.4;
-      const tipX = t.img.x + Math.cos(t.angle) * 15;
-      const tipY = t.img.y + Math.sin(t.angle) * 15;
+      const tipX = t.img.x + Math.cos(t.angle) * 28;
+      const tipY = t.img.y + Math.sin(t.angle) * 28;
       t.muzzle.setPosition(tipX, tipY).setRotation(t.angle).setVisible(true);
       t.muzzleT = 0.05;
       sfx.rifle();

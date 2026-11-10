@@ -120,6 +120,8 @@ export class GameScene extends Phaser.Scene {
     this.view.selected = this.controller.selected;
     this.view.update(alpha, this.paused ? 0 : world.isOver ? dt : gameDt, !!this.controller.ghost);
     this.controller.update(dt);
+    this.rig.update(dt);
+    this.router.update(dt, HUD);
 
     if (world.isOver && !this.resultSaved) {
       this.resultSaved = true;

@@ -110,6 +110,12 @@ export class Sfx {
   victory(): void { if (this.ok('victory', 1000)) [523, 659, 784, 1046].forEach((f, i) => this.tone('triangle', f, f, 0.35, 0.18, i * 0.15)); }
   defeat(): void { if (this.ok('defeat', 1000)) [392, 330, 262, 196].forEach((f, i) => this.tone('sawtooth', f, f * 0.98, 0.4, 0.1, i * 0.22)); }
 
+  sniper(): void { if (this.ok('sniper', 90)) { this.burst(900, 0.6, 0.28, 0.75, 0.25); this.tone('sine', 120, 50, 0.2, 0.25); } }
+  turret(): void { if (this.ok('turret', 60)) this.burst(2400, 1.2, 0.06, 0.3, 0.5); }
+  rocket(): void { if (this.ok('rocket', 90)) { this.burst(700, 0.6, 0.45, 0.55, 0.2, 'lowpass'); this.tone('sawtooth', 220, 90, 0.3, 0.06); } }
+  flame(): void { if (this.ok('flame', 150)) this.burst(500, 0.4, 0.6, 0.5, 0.6, 'lowpass'); }
+  promote(): void { if (this.ok('promote', 200)) { this.tone('triangle', 660, 660, 0.1, 0.12); this.tone('triangle', 990, 990, 0.18, 0.12, 0.1); } }
+
   click(): void { if (this.ok('click', 30)) this.tone('square', 880, 440, 0.08, 0.12); }
 }
 

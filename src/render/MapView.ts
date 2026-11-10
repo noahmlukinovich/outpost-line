@@ -26,12 +26,18 @@ export class MapView {
     const { scene, world } = this;
     const map = world.map;
 
-    scene.add.tileSprite(0, 0, map.width, map.height, 'env.ground').setOrigin(0, 0).setDepth(Depth.ground);
-    // Darker surroundings outside the playable area.
-    const edge = scene.add.graphics().setDepth(Depth.ground);
-    edge.fillStyle(0x0b0c0a, 1);
-    edge.fillRect(-2000, -2000, map.width + 4000, 2000).fillRect(-2000, map.height, map.width + 4000, 2000);
-    edge.fillRect(-2000, 0, 2000, map.height).fillRect(map.width, 0, 2000, map.height);
+    // Ground continues well past the playable area (dimmed), so the screen never shows empty bars.
+    const pad = 700;
+    scene.add.tileSprite(-pad, -pad, map.width + pad * 2, map.height + pad * 2, 'env.ground').setOrigin(0, 0).setDepth(Depth.ground);
+    const edge = scene.add.graphics().setDepth(Depth.overlay);
+    edge.fillStyle(0x080907, 0.55);
+    edge.fillRect(-pad, -pad, map.width + pad * 2, pad).fillRect(-pad, map.height, map.width + pad * 2, pad);
+    edge.fillRect(-pad, 0, pad, map.height).fillRect(map.width, 0, pad, map.height);
+    // Soft inner edge so the boundary reads as "the edge of the battlefield".
+    for (let i = 0; i < 6; i++) {
+      edge.lineStyle(6, 0x080907, 0.08 * (6 - i));
+      edge.strokeRect(i * 6, i * 6, map.width - i * 12, map.height - i * 12);
+    }
 
     this.drawRoad();
     this.drawZones();

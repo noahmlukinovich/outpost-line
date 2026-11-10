@@ -638,7 +638,7 @@ export class World {
   /** Trooper formation: a shallow arc facing `squad.facing`, centered on the squad position. */
   private slot(squad: Squad, i: number, out: Vec): Vec {
     const n = squad.troopers.length;
-    const spacing = n > 2 ? 13 : 15;
+    const spacing = n > 2 ? 15 : 17;
     const lateral = (i - (n - 1) / 2) * spacing;
     const forward = -Math.abs(lateral) * 0.35 + (squad.def.crewServed && i === 0 ? 4 : 0);
     const c = Math.cos(squad.facing), s = Math.sin(squad.facing);
@@ -663,8 +663,8 @@ export class World {
     const n = s.turrets.length;
     const c = Math.cos(s.facing), sn = Math.sin(s.facing);
     for (let i = 0; i < n; i++) {
-      const lateral = (i - (n - 1) / 2) * Balance.turretSpacing + (n % 2 === 1 ? 0 : 0);
-      const fwd = n % 2 === 1 && i === (n - 1) / 2 ? 30 : 16;
+      const lateral = (i - (n - 1) / 2) * Balance.turretSpacing;
+      const fwd = n % 2 === 1 && i === (n - 1) / 2 ? 52 : 38;
       const t = s.turrets[i];
       t.x = s.anchorX + fwd * c - lateral * sn;
       t.y = s.anchorY + fwd * sn + lateral * c;

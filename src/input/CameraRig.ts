@@ -33,23 +33,59 @@ export class CameraRig {
     return this.cam.height / DPR;
   }
 
-  /** Zoom so the whole map fits between the top and bottom HUD bars. */
+  get viewWidth(): number {
+    return this.viewW;
+  }
+
+  get viewHeight(): number {
+    return this.viewH;
+  }
+
+  /** Smoothly move the camera so world point (wx, wy) ends up at CSS screen point (sx, sy). */
+  glideTo(wx: number, wy: number, sx: number, sy: number): void {
+    const cur = this.worldToScreen(wx, wy);
+    this.glide = { dx: sx * DPR - cur.x, dy: sy * DPR - cur.y };
+  }
+
+  private glide: { dx: number; dy: number } | null = null;
+
+  /** Per-frame update for smooth camera glides. */
+  update(dt: number): void {
+    if (!this.glide) return;
+    const k = Math.min(1, dt * 8);
+    const mx = this.glide.dx * k, my = this.glide.dy * k;
+    this.panBy(mx, my);
+    this.glide.dx -= mx;
+    this.glide.dy -= my;
+    if (Math.abs(this.glide.dx) + Math.abs(this.glide.dy) < 1) this.glide = null;
+  }
+
+  /**
+   * The smallest zoom that still fills the whole screen with map (no empty bars), and the zoom
+   * that would show the whole map between the HUD bars. We start a little closer than "whole map"
+   * but never zoom out past "fill the screen".
+   */
+  private zoomLimits(): { fill: number; fit: number } {
+    const fill = Math.max(this.viewW / this.mapW, this.viewH / this.mapH);
+    const fit = Math.min(this.viewW / this.mapW, (this.viewH - this.hud.top - this.hud.bottom) / this.mapH);
+    return { fill, fit };
+  }
+
   fit(): void {
     const cam = this.cam;
     cam.setSize(cam.scene.scale.width, cam.scene.scale.height);
-    const fitZoom = Math.min(this.viewW / this.mapW, (this.viewH - this.hud.top - this.hud.bottom) / this.mapH);
-    this.minZoom = fitZoom * 0.92;
-    this.maxZoom = Math.max(2.2, fitZoom * 2.5);
-    this.setZoom(fitZoom);
-    this.centerOn(this.mapW / 2, this.mapH / 2 + (this.hud.bottom - this.hud.top) / 2 / fitZoom);
+    const { fill } = this.zoomLimits();
+    this.minZoom = fill;
+    this.maxZoom = Math.max(2.2, fill * 2.6);
+    this.setZoom(fill);
+    this.centerOn(this.mapW / 2, this.mapH / 2);
   }
 
   resize(hud: HudInsets): void {
     this.hud = hud;
     const c = this.screenToWorld(this.cam.width / 2, this.cam.height / 2);
     this.cam.setSize(this.cam.scene.scale.width, this.cam.scene.scale.height);
-    const fitZoom = Math.min(this.viewW / this.mapW, (this.viewH - hud.top - hud.bottom) / this.mapH);
-    this.minZoom = fitZoom * 0.92;
+    this.minZoom = this.zoomLimits().fill;
     this.setZoom(Phaser.Math.Clamp(this.zoom, this.minZoom, this.maxZoom));
     this.centerOn(c.x, c.y);
   }
@@ -79,11 +115,13 @@ export class CameraRig {
     return out;
   }
 
-  /** Pan by a screen-pixel delta (finger movement). */
-  panBy(dx: number, dy: number): void {
+  /** Pan by a screen-pixel delta (finger movement). Returns true if the camera actually moved. */
+  panBy(dx: number, dy: number): boolean {
+    const x0 = this.cam.scrollX, y0 = this.cam.scrollY;
     this.cam.scrollX -= dx / this.cam.zoom;
     this.cam.scrollY -= dy / this.cam.zoom;
     this.clamp();
+    return Math.abs(this.cam.scrollX - x0) + Math.abs(this.cam.scrollY - y0) > 0.01;
   }
 
   /** Zoom by `factor`, keeping the world point under screen point (px, py) fixed. */
