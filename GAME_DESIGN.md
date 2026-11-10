@@ -3,7 +3,7 @@
 > Working title. A top-down military sci-fi tower defense game for iPad (installable PWA).
 > All factions, units, names and art are original.
 >
-> Status: **v0.7. M0–M3 built** (new enemies, boss, Sensor Pylon, Mission 2), plus an effects pass and Endless mode. Fliers: bullets can hit them, grenades/flames can't, rockets/flak deal double. Items marked **[Q#]** are open questions (listed at the end).
+> Status: **v0.8. M0–M3 and M4a built** (heroes, campaign map, stars, global tech tree; M4b adds missions 3–5) (new enemies, boss, Sensor Pylon, Mission 2), plus an effects pass and Endless mode. Fliers: bullets can hit them, grenades/flames can't, rockets/flak deal double. Items marked **[Q#]** are open questions (listed at the end).
 > Items marked *(proposal)* fill gaps in the brief and can be changed.
 
 ---
@@ -366,7 +366,7 @@ cover** deferred to M5.
 | **M1** ✅ | Core loop | Map 1 (Tiled JSON), sim core (fixed tick, pools, spatial hash), free placement + cover, facing arcs + rotate, rally points, **Rifle + Heavy Weapons I→III**, **Skitter / Warden / Ironback**, supplies, 10 waves with preview, call-early, integrity, win/lose, pause/1x/2x, selling, pan/zoom, core juice + placeholder SFX, asset manifest, settings saved | A full mission with real decisions |
 | **M2** ✅ | Depth | Specializations + abilities for Rifle/Heavy, **Sniper + Engineers**, Power/Reactors + tiers, Supply Depots, Command Cap, veterancy, targeting priorities | Economy vs. defense choices; spec builds feel different |
 | **M3** ✅ | Threats | Veilstalker, Skyray, Tender, Brood Barge, Colossus boss, Motor Pool + both vehicles, 4 commander powers, map 2 | Each enemy forces a counter; boss fight |
-| **M4** | Campaign | Hero system + 2–3 heroes, campaign map, stars, global tech tree, full SaveSystem, unlock flow, maps 3–5 | Play a multi-mission arc, progress persists |
+| **M4** (a ✅, b next) | Campaign | Hero system + 2–3 heroes, campaign map, stars, global tech tree, full SaveSystem, unlock flow, maps 3–5 | Play a multi-mission arc, progress persists |
 | **M5** | Breadth and polish | More maps (to ~12), Heroic/Iron, Endless + high scores, gamepad, Hive Carrier boss, destructible cover, art/audio pass, sprite-pack swap demo, performance pass | "Feels like a real game" |
 
 At the end of each milestone you get: what changed, how to run it locally and on the iPad, and a

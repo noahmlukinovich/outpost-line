@@ -19,9 +19,13 @@ import type { SimEvents } from './events';
 import { Rng } from './Rng';
 import { SpatialHash } from './SpatialHash';
 import { computeStats, type SquadStats } from './stats';
+import { computeMods, modsFor, type GlobalMods } from './mods';
+import { HERO_RESPAWN, getHero, heroLevelFor } from '../data/heroes';
+import type { HeroDef } from '../data/types';
+import type { HeroState, Mine } from './entities';
 import { endlessScale, generateWave, type GeneratedWave } from './director';
 import { Endless } from '../data/endless';
-import { POWER_ORDER, Powers } from '../data/powers';
+import { POWER_ORDER } from '../data/powers';
 import type { PowerDef, PowerId } from '../data/types';
 import type { WaveDef } from '../data/types';
 
@@ -94,11 +98,23 @@ export class World {
   readonly powerCd = {} as Record<PowerId, number>;
   private pending: { def: PowerDef; x: number; y: number; x2: number; y2: number; t: number; bombs: number }[] = [];
 
-  constructor(mission: MissionDef, seed = 1) {
+  /** Global tech-tree modifiers in effect. */
+  readonly mods: GlobalMods;
+  /** Commander powers with tech upgrades applied. */
+  readonly powerDefs: Record<PowerId, PowerDef>;
+  /** The hero squad (null if none this mission). */
+  hero: Squad | null = null;
+  /** Proximity mines on the field. */
+  readonly mines: Mine[] = [];
+  private heroSpawn = { x: 0, y: 0 };
+
+  constructor(mission: MissionDef, seed = 1, opts: { mods?: GlobalMods; hero?: string } = {}) {
     this.mission = mission;
     this.map = loadTiledMap(mission.mapJson);
     this.rng = new Rng(seed);
-    this.supplies = mission.startingSupplies;
+    this.mods = opts.mods ?? computeMods([]);
+    this.powerDefs = this.mods.powers;
+    this.supplies = mission.startingSupplies + this.mods.startSupplies;
     this.integrity = this.maxIntegrity = mission.integrity;
     this.hash = new SpatialHash(this.map.width, this.map.height, 64);
     this.seed = seed;
@@ -109,7 +125,173 @@ export class World {
     }
     for (const u of mission.units) for (const s of getUnit(u).specs) getSpec(s);
     for (const b of mission.buildings) getBuilding(b);
-    for (const id of this.powerIds) this.powerCd[id] = Powers[id].initialCooldown;
+    for (const id of this.powerIds) this.powerCd[id] = this.powerDefs[id].initialCooldown;
+    if (opts.hero) this.spawnHero(getHero(opts.hero));
+  }
+
+  // ================================================================== hero
+
+  /** Where the hero (re)appears: just in front of the gate, beside the road. */
+  private findHeroSpawn(): void {
+    const road = this.map.paths[0];
+    const p = { x: 0, y: 0 };
+    for (let d = road.length - 160; d > 0; d -= 20) {
+      const h = road.sample(d, p);
+      for (const side of [1, -1]) {
+        const x = p.x - Math.sin(h) * 60 * side, y = p.y + Math.cos(h) * 60 * side;
+        if (isTerrainBuildable(this.map, x, y, 16) && road.distSqTo(x, y) > 45 * 45) {
+          this.heroSpawn = { x, y };
+          return;
+        }
+      }
+    }
+    this.heroSpawn = { x: this.map.width / 2, y: this.map.height / 2 };
+  }
+
+  private spawnHero(h: HeroDef): void {
+    this.findHeroSpawn();
+    const tier = { cost: 0, trooperHp: h.hp, weapon: h.weapon, blurb: h.title };
+    const def: UnitDef = {
+      id: `hero:${h.id}`, name: h.name, role: h.title, troopers: 1, crewServed: false, arcDeg: 360, footprint: 18,
+      leash: 1e9, blockCap: h.blockCap, cap: 0, art: h.art, tiers: [tier, tier, tier], specs: ['', ''],
+      effects: [{ kind: 'armor', reduction: h.armor }],
+    };
+    const startXp = this.mods.heroStartLevel > 0 ? [0, 30, 80, 150, 240, 350][Math.min(5, this.mods.heroStartLevel)] : 0;
+    const state: HeroState = { def: h, level: heroLevelFor(startXp), xp: startXp, cds: [0, 0], shieldT: 0, cloakT: 0 };
+    const sq = this.createSquad(def, this.heroSpawn.x, this.heroSpawn.y, this.suggestFacing(this.heroSpawn.x, this.heroSpawn.y), 0, 0, state);
+    this.hero = sq;
+    this.events.squadPlaced?.(sq);
+  }
+
+  /** Can the hero use ability i right now? '' = yes, otherwise the reason. */
+  checkHeroAbility(i: number): string {
+    const s = this.hero;
+    if (!s?.hero) return 'No hero';
+    const a = s.hero.def.abilities[i];
+    if (s.hero.level < a.level) return `Unlocks at level ${a.level}`;
+    if (s.down) return 'Hero is down';
+    if (s.hero.cds[i] > 0) return `${a.name} recharging (${Math.ceil(s.hero.cds[i])}s)`;
+    if (this.isOver) return 'Mission over';
+    return '';
+  }
+
+  useHeroAbility(i: number): boolean {
+    if (this.checkHeroAbility(i)) return false;
+    const s = this.hero!, hs = s.hero!;
+    const a = hs.def.abilities[i];
+    const power = a.power + a.powerPerLevel * (hs.level - 1);
+    hs.cds[i] = a.cooldown;
+    switch (a.kind) {
+      case 'rally':
+        for (const q of this.squads) {
+          if (q.down || Math.hypot(q.x - s.x, q.y - s.y) > a.radius) continue;
+          q.buffRofT = a.duration;
+          q.buffRof = Math.max(q.buffRof, 1 + power);
+        }
+        break;
+      case 'scan':
+        for (const e of this.enemies) {
+          if (!e.alive || Math.hypot(e.x - s.x, e.y - s.y) > a.radius) continue;
+          e.markT = Math.max(e.markT, a.duration);
+          e.markMult = Math.max(e.markMult, power);
+          if (e.def.cloaked) {
+            e.revealT = Math.max(e.revealT, a.duration);
+            e.revealed = true;
+          }
+        }
+        break;
+      case 'shieldwall':
+        hs.shieldT = a.duration;
+        this.refreshStats(s);
+        break;
+      case 'slam':
+        for (const e of this.hash.query(s.x, s.y, a.radius + 30, this.near)) {
+          if (!e.alive || e.def.flier || Math.hypot(e.x - s.x, e.y - s.y) > a.radius + e.def.radius) continue;
+          this.damageEnemy(e, power, 'explosive', s, null);
+          if (e.alive) e.stunT = Math.max(e.stunT, a.duration);
+        }
+        break;
+      case 'cloak':
+        hs.cloakT = a.duration;
+        this.releaseEngaged(s);
+        break;
+      case 'mines': {
+        // Three mines along the nearest road, centered on the point closest to the hero.
+        let road = this.map.paths[0], best = Infinity;
+        for (const p of this.map.paths) {
+          const d = p.distSqTo(s.x, s.y);
+          if (d < best) {
+            best = d;
+            road = p;
+          }
+        }
+        const at = road.distanceAt(s.x, s.y);
+        for (const off of [-45, 0, 45]) {
+          road.sample(Math.max(0, Math.min(road.length, at + off)), this.tmp);
+          this.mines.push({ x: this.tmp.x, y: this.tmp.y, damage: power, radius: a.radius, arm: 1, life: a.duration, owner: s });
+        }
+        break;
+      }
+    }
+    this.events.heroAbility?.(s, a.kind);
+    return true;
+  }
+
+  private updateHero(dt: number): void {
+    const s = this.hero;
+    if (!s?.hero) return;
+    const hs = s.hero;
+    for (let i = 0; i < 2; i++) if (hs.cds[i] > 0) hs.cds[i] = Math.max(0, hs.cds[i] - dt);
+    if (hs.cloakT > 0) hs.cloakT -= dt;
+    if (hs.shieldT > 0) {
+      hs.shieldT -= dt;
+      if (hs.shieldT <= 0) this.refreshStats(s);
+    }
+  }
+
+  private heroXp(amount: number): void {
+    const s = this.hero;
+    if (!s?.hero) return;
+    const hs = s.hero;
+    hs.xp += amount * this.mods.heroXp;
+    const lvl = heroLevelFor(hs.xp);
+    if (lvl > hs.level) {
+      hs.level = lvl;
+      this.refreshStats(s);
+      for (const t of s.troopers) if (t.alive) t.hp = s.stats.hp;
+      this.events.heroLevel?.(s);
+    }
+  }
+
+  private updateMines(dt: number): void {
+    for (let i = this.mines.length - 1; i >= 0; i--) {
+      const m = this.mines[i];
+      m.life -= dt;
+      if (m.arm > 0) m.arm -= dt;
+      let boom = false;
+      if (m.arm <= 0) {
+        for (const e of this.hash.query(m.x, m.y, 40, this.near)) {
+          if (e.alive && !e.def.flier && Math.hypot(e.x - m.x, e.y - m.y) < 18 + e.def.radius) {
+            boom = true;
+            break;
+          }
+        }
+      }
+      if (boom) {
+        for (const e of this.hash.query(m.x, m.y, m.radius + 30, this.near)) {
+          if (!e.alive || e.def.flier) continue;
+          const d = Math.hypot(e.x - m.x, e.y - m.y);
+          if (d <= m.radius + e.def.radius) this.damageEnemy(e, m.damage * (1 - 0.4 * Math.min(1, d / m.radius)), 'explosive', m.owner && !m.owner.removed ? m.owner : null, null);
+        }
+        this.events.explosion?.(m.x, m.y, m.radius, 'shell');
+        this.mines.splice(i, 1);
+      } else if (m.life <= 0) this.mines.splice(i, 1);
+    }
+  }
+
+  /** Unit cost after tech discounts. */
+  unitCost(def: UnitDef, tier: number): number {
+    return Math.round(def.tiers[tier].cost * modsFor(this.mods, def.id).cost);
   }
 
   /** Commander powers available in this mission. */
@@ -120,9 +302,9 @@ export class World {
   /** Why a power can't be used at (x, y) right now ('' = it can). */
   checkPower(id: PowerId, x: number, y: number): string {
     if (this.isOver) return 'Mission over';
-    if ((this.powerCd[id] ?? 0) > 0) return `${Powers[id].name} recharging (${Math.ceil(this.powerCd[id])}s)`;
+    if ((this.powerCd[id] ?? 0) > 0) return `${this.powerDefs[id].name} recharging (${Math.ceil(this.powerCd[id])}s)`;
     if (id === 'droppod') {
-      const def = getUnit(Powers.droppod.unit!);
+      const def = getUnit(this.powerDefs.droppod.unit!);
       if (!isTerrainBuildable(this.map, x, y, def.footprint * 0.5)) return 'Pods need open ground';
       for (const q of this.squads) if (Math.hypot(q.x - x, q.y - y) < q.def.footprint + def.footprint) return 'Too close to a squad';
       for (const b of this.buildings) if (Math.hypot(b.x - x, b.y - y) < b.def.footprint + def.footprint) return 'Too close to a building';
@@ -133,7 +315,7 @@ export class World {
   /** Use a commander power. Airstrike uses (x, y) → (x2, y2) as its line. */
   usePower(id: PowerId, x: number, y: number, x2 = x, y2 = y): boolean {
     if (this.checkPower(id, x, y)) return false;
-    const def = Powers[id];
+    const def = this.powerDefs[id];
     if (id === 'airstrike') {
       // Normalize to a fixed-length run centered on the drag (or along the road for a tap).
       let dx = x2 - x, dy = y2 - y;
@@ -284,7 +466,7 @@ export class World {
   }
 
   get capMax(): number {
-    return this.mission.commandCap;
+    return this.mission.commandCap + this.mods.commandCap;
   }
 
   get income(): number {
@@ -311,7 +493,7 @@ export class World {
       return { footprint: b.footprint, cost: b.tiers[0].cost, isUnit: false };
     }
     const u = getUnit(id);
-    return { footprint: u.footprint, cost: u.tiers[0].cost, isUnit: true };
+    return { footprint: u.footprint, cost: this.unitCost(u, 0), isUnit: true };
   }
 
   checkPlacement(id: string, x: number, y: number): PlacementCheck {
@@ -425,7 +607,7 @@ export class World {
     const check = this.checkPlacement(unitId, x, y);
     if (!check.ok) return null;
     const def = getUnit(unitId);
-    const cost = def.tiers[0].cost;
+    const cost = this.unitCost(def, 0);
     this.supplies -= cost;
     const squad = this.createSquad(def, check.x, check.y, facing ?? this.suggestFacing(check.x, check.y), cost, 0);
     this.events.squadPlaced?.(squad);
@@ -433,7 +615,7 @@ export class World {
   }
 
   /** Build a squad entity (no cost/validation). `expires` > 0 makes it temporary (drop pods). */
-  private createSquad(def: UnitDef, x: number, y: number, f: number, invested: number, expires: number): Squad {
+  private createSquad(def: UnitDef, x: number, y: number, f: number, invested: number, expires: number, hero?: HeroState): Squad {
     const check = { x, y };
     const cost = invested;
     const squad: Squad = {
@@ -443,7 +625,7 @@ export class World {
       tier: 0,
       spec: null,
       abilities: [],
-      stats: computeStats({ def, tier: 0, spec: null, abilities: [], rank: 0 }),
+      stats: this.statsFor({ def, tier: 0, spec: null, abilities: [], rank: 0, hero }),
       xp: 0,
       rank: 0,
       invested: cost,
@@ -476,6 +658,9 @@ export class World {
       auraRof: 1,
       auraReinforce: 1,
       expires,
+      hero,
+      buffRofT: 0,
+      buffRof: 1,
     };
     for (let i = 0; i < def.troopers; i++) {
       const t: Trooper = { alive: true, hp: squad.stats.hp, x: 0, y: 0, prevX: 0, prevY: 0, angle: f, cooldown: this.rng.range(0, 0.6) };
@@ -498,9 +683,10 @@ export class World {
 
   /** null when there is no further tier. */
   checkUpgrade(p: Placeable): BuyCheck | null {
-    if (p.tier >= 2) return null;
+    if (p.tier >= 2 || (p.kind === 'squad' && p.hero)) return null;
     const next = p.def.tiers[p.tier + 1];
-    return this.techCheck(next.cost, 'tech' in next ? next.tech : undefined);
+    const cost = p.kind === 'squad' ? this.unitCost(p.def, p.tier + 1) : next.cost;
+    return this.techCheck(cost, 'tech' in next ? next.tech : undefined);
   }
 
   upgrade(p: Placeable): boolean {
@@ -559,13 +745,36 @@ export class World {
   /** Recompute stats after tier/spec/ability/rank changes; tops up trooper HP by the gain. */
   private refreshStats(s: Squad): void {
     const oldHp = s.stats.hp;
-    s.stats = computeStats(s);
+    s.stats = this.statsFor(s);
     const gain = s.stats.hp - oldHp;
     for (const t of s.troopers) if (t.alive) t.hp = Math.min(s.stats.hp, t.hp + Math.max(0, gain));
     // Deploy or remove turrets to match.
     while (s.turrets.length < s.stats.turretCount) s.turrets.push({ x: s.anchorX, y: s.anchorY, angle: s.facing, cooldown: 0.5 });
     s.turrets.length = s.stats.turretCount;
     this.layoutTurrets(s);
+  }
+
+  /** Stats with tech-tree modifiers (and hero level / shield wall) applied. */
+  private statsFor(src: { def: UnitDef; tier: number; spec: SpecDef | null; abilities: string[]; rank: number; hero?: HeroState }): SquadStats {
+    const st = computeStats(src);
+    const m = modsFor(this.mods, src.def.id);
+    st.damage *= m.damage;
+    st.rof *= m.rof;
+    st.range *= m.range;
+    st.hp *= m.hp;
+    st.splash *= m.splash;
+    const h = src.hero;
+    if (h) {
+      st.damage *= 1 + h.def.damagePerLevel * (h.level - 1);
+      st.hp *= 1 + h.def.hpPerLevel * (h.level - 1);
+      st.range *= 1 + 0.02 * (h.level - 1);
+      if (h.shieldT > 0) {
+        const a = h.def.abilities.find((q) => q.kind === 'shieldwall')!;
+        st.armor = 1 - (1 - st.armor) * (1 - Math.min(0.9, a.power + a.powerPerLevel * (h.level - 1)));
+        st.blockCap += 5;
+      }
+    }
+    return st;
   }
 
   private checkTech(): void {
@@ -578,11 +787,12 @@ export class World {
 
   sellValue(p: Placeable): number {
     const full = Balance.fullRefundBeforeNextWave && p.placedAtWave === this.wavesStarted;
-    return Math.floor(p.invested * (full ? 1 : Balance.sellRefund));
+    if (p.kind === 'squad' && p.hero) return 0;
+    return Math.floor(p.invested * (full ? 1 : this.mods.sellRefund));
   }
 
   sell(p: Placeable): number {
-    if (p.removed || this.isOver) return 0;
+    if (p.removed || this.isOver || (p.kind === 'squad' && p.hero)) return 0;
     const refund = this.sellValue(p);
     this.supplies += refund;
     p.removed = true;
@@ -612,6 +822,14 @@ export class World {
 
   /** Moves the rally point, clamped to the leash circle and to legal terrain. Returns the final point. */
   setRally(squad: Squad, x: number, y: number): Vec {
+    if (squad.hero) {
+      // Heroes go anywhere walkable (roads included).
+      if (isTerrainBuildable(this.map, x, y, 8)) {
+        squad.rallyX = squad.anchorX = x;
+        squad.rallyY = squad.anchorY = y;
+      }
+      return { x: squad.rallyX, y: squad.rallyY };
+    }
     let dx = x - squad.anchorX, dy = y - squad.anchorY;
     const d = Math.hypot(dx, dy);
     if (d > squad.def.leash) {
@@ -691,7 +909,9 @@ export class World {
 
     this.updateDetection(dt);
     this.updateAuras(dt);
+    this.updateHero(dt);
     for (let i = this.squads.length - 1; i >= 0; i--) this.updateSquad(this.squads[i], dt);
+    this.updateMines(dt);
     this.updatePowers(dt);
     for (let i = this.enemies.length - 1; i >= 0; i--) this.updateEnemy(this.enemies[i], dt);
     for (let i = this.projectiles.length - 1; i >= 0; i--) this.updateShell(this.projectiles[i], i, dt);
@@ -736,7 +956,7 @@ export class World {
     // Supply Depots pay out at the start of every wave after the first.
     if (index > 0) {
       for (const b of this.buildings) {
-        const inc = b.def.tiers[b.tier].income ?? 0;
+        const inc = Math.round((b.def.tiers[b.tier].income ?? 0) * this.mods.depotIncome);
         if (inc > 0) {
           this.supplies += inc;
           this.events.income?.(b, inc);
@@ -977,7 +1197,7 @@ export class World {
       if (!a) continue;
       for (const q of this.squads) {
         if (q.down || Math.hypot(q.x - src.x, q.y - src.y) > a.radius) continue;
-        if (a.heal > 0) for (const t of q.troopers) if (t.alive) t.hp = Math.min(q.stats.hp, t.hp + a.heal * dt);
+        if (a.heal > 0) for (const t of q.troopers) if (t.alive) t.hp = Math.min(q.stats.hp, t.hp + a.heal * this.mods.auraHeal * dt);
         q.auraRof = Math.max(q.auraRof, a.rof);
         q.auraReinforce = Math.max(q.auraReinforce, a.reinforce);
       }
@@ -991,8 +1211,14 @@ export class World {
       t.alive = true;
       t.hp = s.stats.hp;
     }
-    s.x = s.rallyX;
-    s.y = s.rallyY;
+    if (s.hero) {
+      // Heroes respawn at the gate.
+      s.rallyX = s.anchorX = s.x = this.heroSpawn.x;
+      s.rallyY = s.anchorY = s.y = this.heroSpawn.y;
+    } else {
+      s.x = s.rallyX;
+      s.y = s.rallyY;
+    }
     this.layoutTroopers(s, true);
     this.updateCover(s);
     this.events.squadRestored?.(s, revived);
@@ -1024,7 +1250,7 @@ export class World {
     const dx = s.rallyX - s.x, dy = s.rallyY - s.y;
     const dist = Math.hypot(dx, dy);
     if (dist > 0.5) {
-      const stepLen = Math.min(dist, Balance.squadMoveSpeed * dt);
+      const stepLen = Math.min(dist, (s.hero ? s.hero.def.speed : Balance.squadMoveSpeed) * dt);
       s.x += (dx / dist) * stepLen;
       s.y += (dy / dist) * stepLen;
       if (s.engagedBy > 0 && dist > 20) this.releaseEngaged(s);
@@ -1104,7 +1330,11 @@ export class World {
 
     if (!s.target) return;
     const target = s.target;
-    let rof = st.rof * s.auraRof * (st.spinUp ? 1 + st.spinUp.maxBonus * s.spin : 1);
+    if (s.buffRofT > 0) {
+      s.buffRofT -= dt;
+      if (s.buffRofT <= 0) s.buffRof = 1;
+    }
+    let rof = st.rof * s.auraRof * s.buffRof * (st.spinUp ? 1 + st.spinUp.maxBonus * s.spin : 1);
     if (s.cover && st.coverBonus) rof *= st.coverBonus.rof;
 
     if (s.def.crewServed) {
@@ -1150,6 +1380,10 @@ export class World {
       ty += this.rng.range(-22, 22);
     }
     let dmg = st.damage;
+    if (s.hero && s.hero.cloakT > 0) {
+      const a = s.hero.def.abilities.find((q) => q.kind === 'cloak');
+      if (a) dmg *= 1 + a.power + a.powerPerLevel * (s.hero.level - 1);
+    }
     if (st.firstShot > 1 && s.lastTargetId !== target.id) dmg *= st.firstShot;
     s.lastTargetId = target.id;
     this.events.shot?.(s, t, tx, ty, hit);
@@ -1368,7 +1602,7 @@ export class World {
       this.events.trooperLost?.(s, victim);
       if (count === 1) {
         s.down = true;
-        s.downTimer = Balance.downTime;
+        s.downTimer = s.hero ? HERO_RESPAWN * this.mods.heroRespawn : Balance.downTime;
         s.target = null;
         this.releaseEngaged(s);
         this.events.squadDown?.(s);
@@ -1435,7 +1669,13 @@ export class World {
       this.kills++;
       if (source && !source.removed) {
         source.kills++;
-        this.awardXp(source, e.def.bounty);
+        if (!source.hero) this.awardXp(source, e.def.bounty);
+      }
+      // Heroes learn from their own kills and from fights they're close to.
+      const h = this.hero;
+      if (h && !h.down) {
+        if (source === h) this.heroXp(e.def.bounty * 1.5);
+        else if (Math.hypot(h.x - e.x, h.y - e.y) < 170) this.heroXp(e.def.bounty * 0.6);
       }
       this.events.enemyKilled?.(e, bounty);
       return;
@@ -1588,7 +1828,7 @@ export class World {
       }
       if (!e.engaged) {
         for (const q of this.squads) {
-          if (q.down || q.engagedBy >= q.stats.blockCap) continue;
+          if (q.down || q.engagedBy >= q.stats.blockCap || (q.hero && q.hero.cloakT > 0)) continue;
           if (Math.hypot(q.x - e.x, q.y - e.y) <= def.attack.range + q.def.footprint * 0.5) {
             e.engaged = q;
             q.engagedBy++;
@@ -1611,7 +1851,7 @@ export class World {
       let best: Squad | null = null;
       let bestD = def.attack.range;
       for (const q of this.squads) {
-        if (q.down) continue;
+        if (q.down || (q.hero && q.hero.cloakT > 0)) continue;
         const d = Math.hypot(q.x - e.x, q.y - e.y);
         if (d < bestD) {
           bestD = d;

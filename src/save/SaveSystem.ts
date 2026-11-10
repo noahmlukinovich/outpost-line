@@ -5,8 +5,12 @@
  * IndexedDB) only touches this file. Bump VERSION and add a migration when the shape changes.
  * Note: iPadOS keeps home-screen web app storage, but clearing Safari website data erases it.
  */
+import { Missions } from '../data/missions';
+import { Tech } from '../data/tech';
+import type { HeroDef, MissionDef } from '../data/types';
+
 const KEY = 'outpost-line/save';
-const VERSION = 1;
+const VERSION = 2;
 
 export interface Settings {
   damageNumbers: boolean;
@@ -34,6 +38,10 @@ export interface SaveData {
   missions: Record<string, MissionProgress>;
   /** Best endless runs per mission id, best first (top 5). */
   endless: Record<string, EndlessRun[]>;
+  /** Tech-tree nodes bought with stars. */
+  tech: string[];
+  /** Hero chosen in the last briefing. */
+  hero: string;
 }
 
 function defaults(): SaveData {
@@ -42,6 +50,8 @@ function defaults(): SaveData {
     settings: { damageNumbers: true, screenShake: true, sound: true, effectsHigh: true },
     missions: {},
     endless: {},
+    tech: [],
+    hero: 'kastellan',
   };
 }
 
@@ -55,6 +65,9 @@ function migrate(raw: unknown): SaveData {
     settings: { ...base.settings, ...(r.settings ?? {}) },
     missions: { ...(r.missions ?? {}) },
     endless: { ...(r.endless ?? {}) },
+    // v1 → v2: tech tree and hero choice added (defaults).
+    tech: Array.isArray(r.tech) ? r.tech : [],
+    hero: typeof r.hero === 'string' ? r.hero : 'kastellan',
   };
 }
 
@@ -119,6 +132,79 @@ class SaveSystem {
     this.data.endless[id] = runs;
     this.persist();
     return runs.indexOf(run);
+  }
+
+  // ---------------------------------------------------------------- campaign progress
+
+  /** Campaign missions in order (endless excluded). */
+  campaign(): MissionDef[] {
+    return Missions.filter((m) => !m.endless);
+  }
+
+  missionUnlocked(id: string): boolean {
+    const list = this.campaign();
+    const i = list.findIndex((m) => m.id === id);
+    if (i <= 0) return true;
+    return (this.mission(list[i - 1].id)?.stars ?? 0) > 0;
+  }
+
+  heroUnlocked(h: HeroDef): boolean {
+    return !h.unlockedBy || (this.mission(h.unlockedBy)?.stars ?? 0) > 0;
+  }
+
+  get selectedHero(): string {
+    return this.data.hero;
+  }
+
+  set selectedHero(id: string) {
+    this.data.hero = id;
+    this.persist();
+  }
+
+  /** Stars from endless: 1 for wave 10, 2 for wave 20, 3 for wave 30 (best run). */
+  endlessStars(id = 'endless01'): number {
+    const best = this.endlessRuns(id)[0]?.waves ?? 0;
+    return best >= 30 ? 3 : best >= 20 ? 2 : best >= 10 ? 1 : 0;
+  }
+
+  totalStars(): number {
+    let n = this.endlessStars();
+    for (const m of this.campaign()) n += this.mission(m.id)?.stars ?? 0;
+    return n;
+  }
+
+  get techOwned(): readonly string[] {
+    return this.data.tech;
+  }
+
+  spentStars(): number {
+    return this.data.tech.reduce((a, id) => a + (Tech.find((t) => t.id === id)?.cost ?? 0), 0);
+  }
+
+  availableStars(): number {
+    return this.totalStars() - this.spentStars();
+  }
+
+  /** Why a tech node can't be bought ('' = it can). */
+  checkTech(id: string): string {
+    const node = Tech.find((t) => t.id === id);
+    if (!node) return 'Unknown';
+    if (this.data.tech.includes(id)) return 'Owned';
+    if (node.requires && !this.data.tech.includes(node.requires)) return 'Requires the previous upgrade';
+    if (this.availableStars() < node.cost) return `Needs ${node.cost}★`;
+    return '';
+  }
+
+  buyTech(id: string): boolean {
+    if (this.checkTech(id)) return false;
+    this.data.tech.push(id);
+    this.persist();
+    return true;
+  }
+
+  respec(): void {
+    this.data.tech = [];
+    this.persist();
   }
 }
 

@@ -179,6 +179,16 @@ export class ActionButton implements Tappable {
     return this.container.visible && (this.container.parentContainer?.visible ?? true);
   }
 
+  /** Smaller title for narrow columns (tech tree). */
+  compact(): this {
+    this.title.setFontSize(13).setWordWrapWidth(this.w - 30);
+    this.isCompact = true;
+    return this;
+  }
+
+  private isCompact = false;
+  private descY = 31;
+
   setVisible(v: boolean): this {
     this.container.setVisible(v);
     if (!v) this.pressed = false;
@@ -195,7 +205,8 @@ export class ActionButton implements Tappable {
     setText(this.title, title);
     setText(this.cost, cost);
     setText(this.desc, desc);
-    const h = Math.max(54, 40 + this.desc.height);
+    this.descY = this.isCompact ? 9 + this.title.height + 3 : 31;
+    const h = Math.max(54, this.descY + 9 + this.desc.height);
     if (state !== this.state || accent !== this.accent || h !== this.h) {
       this.state = state;
       this.accent = accent;
@@ -225,6 +236,6 @@ export class ActionButton implements Tappable {
     this.title.setAlpha(s === 'locked' ? 0.55 : 1).setY(9 + dy);
     this.cost.setAlpha(s === 'locked' || s === 'poor' ? 0.55 : 1).setY(9 + dy)
       .setColor(css(s === 'owned' ? 0x7be08a : s === 'poor' ? 0xff8a7a : Palette.uiAmber));
-    this.desc.setY(31 + dy);
+    this.desc.setY(this.descY + dy);
   }
 }

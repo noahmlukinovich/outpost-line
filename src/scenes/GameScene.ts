@@ -12,6 +12,8 @@ import { CameraRig } from '../input/CameraRig';
 import { InputRouter } from '../input/InputRouter';
 import { WorldRenderer } from '../render/WorldRenderer';
 import { save } from '../save/SaveSystem';
+import { computeMods } from '../sim/mods';
+import { HERO_ORDER, getHero } from '../data/heroes';
 import { World } from '../sim/World';
 import type { UIScene } from '../ui/UIScene';
 
@@ -19,6 +21,7 @@ export const HUD = { top: 66, bottom: 104 };
 
 export interface GameSceneData {
   missionId: string;
+  hero?: string;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -32,6 +35,8 @@ export class GameScene extends Phaser.Scene {
   speed = 1;
   /** Leaderboard position of the finished endless run (-1 = not in top 5). */
   endlessRank = -1;
+  /** Things the finished mission unlocked (for the end screen). */
+  unlocks: string[] = [];
   private acc = 0;
   private resultSaved = false;
   private onVisibility = () => {
@@ -52,8 +57,12 @@ export class GameScene extends Phaser.Scene {
     this.acc = 0;
     this.resultSaved = false;
     this.endlessRank = -1;
+    this.unlocks = [];
 
-    this.world = new World(getMission(this.missionId), (Date.now() & 0xffffff) + 1);
+    this.world = new World(getMission(this.missionId), (Date.now() & 0xffffff) + 1, {
+      mods: computeMods([...save.techOwned]),
+      hero: data?.hero ?? (save.heroUnlocked(getHero(save.selectedHero)) ? save.selectedHero : 'kastellan'),
+    });
     this.view = new WorldRenderer(this, this.world);
     this.applySettings();
     this.controller = new Controller(this, this.world);
@@ -79,7 +88,14 @@ export class GameScene extends Phaser.Scene {
     this.resultSaved = true;
     this.controller.cancelPlacement();
     this.controller.select(null);
-    if (world.state === 'won') save.recordMission(this.missionId, world.stars, world.integrity);
+    if (world.state === 'won') {
+      // Note what this win unlocks (next mission, heroes) for the end screen.
+      const heroesBefore = HERO_ORDER.filter((id) => save.heroUnlocked(getHero(id)));
+      const missionsBefore = save.campaign().filter((m) => save.missionUnlocked(m.id)).map((m) => m.id);
+      save.recordMission(this.missionId, world.stars, world.integrity);
+      for (const id of HERO_ORDER) if (!heroesBefore.includes(id) && save.heroUnlocked(getHero(id))) this.unlocks.push(`Hero ${getHero(id).name}`);
+      for (const m of save.campaign()) if (!missionsBefore.includes(m.id) && save.missionUnlocked(m.id)) this.unlocks.push(m.name);
+    }
     if (world.endless) this.endlessRank = save.recordEndless(this.missionId, world.wavesCleared, world.kills);
   }
 
@@ -101,7 +117,7 @@ export class GameScene extends Phaser.Scene {
 
   quit(): void {
     this.scene.stop('UI');
-    this.scene.start('Title');
+    this.scene.start('Campaign');
   }
 
   /** Called from the UI when a card is tapped: start placing at the middle of the view. */

@@ -22,8 +22,8 @@ import type { Building, Squad } from '../sim/entities';
 import { specsOf } from '../sim/stats';
 import { HUD, type GameScene } from '../scenes/GameScene';
 import { ActionButton, Button, panelBg, setText, text, type Tappable } from './widgets';
-import { Powers } from '../data/powers';
 import type { PowerId } from '../data/types';
+import { HERO_LEVEL_XP } from '../data/heroes';
 
 interface CardDrag {
   pointerId: number;
@@ -72,6 +72,9 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   private cards: Card[] = [];
   private cardDrag: CardDrag | null = null;
   private dragPos = { x: 0, y: 0 };
+
+  // Hero bar
+  private heroBar: { portrait: Button; level: Phaser.GameObjects.Text; xp: Phaser.GameObjects.Graphics; abil: { btn: Button; sweep: Phaser.GameObjects.Graphics }[] } | null = null;
 
   // Commander powers
   private powerBtns: { id: PowerId; btn: Button; sweep: Phaser.GameObjects.Graphics; secs: Phaser.GameObjects.Text }[] = [];
@@ -152,6 +155,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.buildTopBar();
     this.buildBuildBar();
     this.buildPowers();
+    this.buildHeroBar();
     this.buildPlacement();
     this.buildWave();
     this.buildPanel();
@@ -250,7 +254,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       const isUnit = w.mission.units.includes(id);
       if (!isUnit && i === w.mission.units.length) x += 10; // gap between squads and buildings
       const name = isUnit ? getUnit(id).name : getBuilding(id).name;
-      const cost = isUnit ? getUnit(id).tiers[0].cost : getBuilding(id).tiers[0].cost;
+      const cost = isUnit ? w.unitCost(getUnit(id), 0) : getBuilding(id).tiers[0].cost;
       const btn = this.addButton(new Button(this, x, y, cw, ch, '', 'card', '', 12));
       const hull = isUnit ? getUnit(id).vehicleHull : undefined;
       const iconId = hull ?? (isUnit ? trooperArt({ def: getUnit(id), spec: null }, 0) : getBuilding(id).art);
@@ -287,22 +291,77 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       btn.onTap = () => {
         const w = this.gs.world;
         if (w.powerCd[id] > 0) {
-          this.toast(`${Powers[id].name}: ready in ${Math.ceil(w.powerCd[id])}s`);
+          this.toast(`${w.powerDefs[id].name}: ready in ${Math.ceil(w.powerCd[id])}s`);
           return;
         }
         this.gs.controller.beginPower(id);
-        if (this.gs.controller.power === id) this.toast(id === 'airstrike' ? 'Drag a line on the map for the bombing run (tap = along the road)' : `${Powers[id].name}: tap or drag on the map to aim`);
+        if (this.gs.controller.power === id) this.toast(id === 'airstrike' ? 'Drag a line on the map for the bombing run (tap = along the road)' : `${this.gs.world.powerDefs[id].name}: tap or drag on the map to aim`);
       };
       this.powerBtns.push({ id, btn, sweep, secs });
       x += size + gap;
     }
   }
 
+  private buildHeroBar(): void {
+    const w = this.gs.world;
+    this.heroBar = null;
+    const hero = w.hero;
+    if (!hero?.hero) return;
+    const x = 10 + this.inset.left, y = HUD.top + 2;
+    const portrait = this.addButton(new Button(this, x, y, 64, 64, '', 'dark', '', 12));
+    const img = addArt(this, hero.def.art, 32, 28).setRotation(-Math.PI / 2);
+    img.setScale(img.scale * 1.7);
+    const level = text(this, 32, 54, '', 12, Palette.uiAmber, '900').setOrigin(0.5);
+    const xp = this.add.graphics();
+    portrait.container.add([img, xp, level]);
+    portrait.onTap = () => {
+      this.gs.controller.select(hero);
+      const p = this.gs.rig.worldToScreen(hero.x, hero.y);
+      void p;
+      this.gs.rig.glideTo(hero.x, hero.y, this.W * 0.4, this.H * 0.5);
+    };
+    const abil = hero.hero.def.abilities.map((a, i) => {
+      const btn = this.addButton(new Button(this, x + 72 + i * 64, y + 4, 58, 56, a.name.split(' ')[0].toUpperCase(), 'secondary', '', 11));
+      const sweep = this.add.graphics();
+      btn.container.add(sweep);
+      btn.onTap = () => {
+        const reason = w.checkHeroAbility(i);
+        if (reason) {
+          this.toast(reason);
+          return;
+        }
+        w.useHeroAbility(i);
+      };
+      return { btn, sweep };
+    });
+    this.heroBar = { portrait, level, xp, abil };
+  }
+
+  private updateHeroBar(): void {
+    const hb = this.heroBar, hero = this.gs.world.hero;
+    if (!hb || !hero?.hero) return;
+    const h = hero.hero;
+    setText(hb.level, hero.down ? `${Math.ceil(hero.downTimer)}s` : `LV ${h.level}`);
+    const lo = h.level <= 1 ? 0 : HERO_LEVEL_XP[h.level - 2], hi = HERO_LEVEL_XP[h.level - 1];
+    const xf = hi ? (h.xp - lo) / (hi - lo) : 1;
+    hb.xp.clear().fillStyle(0x000000, 0.6).fillRect(8, 60, 48, 3).fillStyle(0xf2c14a, 1).fillRect(8, 60, 48 * Math.min(1, xf), 3);
+    hb.portrait.setActive(this.gs.controller.selected === hero);
+    h.def.abilities.forEach((a, i) => {
+      const { btn, sweep } = hb.abil[i];
+      const locked = h.level < a.level;
+      const cd = h.cds[i];
+      btn.setLabel(a.name.split(' ')[0].toUpperCase(), locked ? `LV ${a.level}` : cd > 0 ? `${Math.ceil(cd)}s` : 'READY');
+      btn.setEnabled(!locked && !hero.down);
+      sweep.clear();
+      if (cd > 0 && !locked) sweep.fillStyle(0x000000, 0.55).slice(29, 28, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, cd / a.cooldown), false).fillPath();
+    });
+  }
+
   private updatePowers(): void {
     const w = this.gs.world;
     for (const p of this.powerBtns) {
       const cd = w.powerCd[p.id];
-      const frac = cd / Powers[p.id].cooldown;
+      const frac = cd / w.powerDefs[p.id].cooldown;
       const g = p.sweep.clear();
       if (cd > 0) {
         g.fillStyle(0x000000, 0.6).slice(30, 30, 30, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, frac), false).fillPath();
@@ -413,7 +472,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.endInfo = text(this, pw / 2, 160, '', 16, Palette.uiText, '600').setOrigin(0.5).setAlign('center');
     const retry = new Button(this, 20, ph - 76, (pw - 52) / 2, 56, 'RETRY', 'secondary', '', 17);
     retry.onTap = () => this.gs.restart();
-    const quit = new Button(this, 32 + (pw - 52) / 2, ph - 76, (pw - 52) / 2, 56, 'TITLE', 'primary', '', 17);
+    const quit = new Button(this, 32 + (pw - 52) / 2, ph - 76, (pw - 52) / 2, 56, 'CONTINUE', 'primary', '', 17);
     quit.onTap = () => this.gs.quit();
     this.endButtons = [retry, quit];
     this.end.add([bg, this.endTitle, this.endStars, this.endInfo, retry.container, quit.container]);
@@ -452,7 +511,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     this.endTitle.setText(won ? 'OUTPOST HELD' : 'OUTPOST LOST').setColor(css(won ? Palette.uiAmber : 0xff6a5a));
     this.endInfo.setText(
       won
-        ? `Integrity ${w.integrity}/${w.maxIntegrity}\nBest: ${Math.max(w.stars, save.mission(w.mission.id)?.stars ?? 0)}★`
+        ? `Integrity ${w.integrity}/${w.maxIntegrity}  ·  Best: ${Math.max(w.stars, save.mission(w.mission.id)?.stars ?? 0)}★\n${this.gs.unlocks.length ? 'UNLOCKED: ' + this.gs.unlocks.join(', ') : `★ ${save.availableStars()} to spend in the Tech Tree`}`
         : `Survived ${w.wavesCleared} of ${w.totalWaves} waves\nThe Choir broke through.`,
     );
     const g = this.endStars.clear();
@@ -719,6 +778,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     }
 
     this.updatePowers();
+    this.updateHeroBar();
     this.updatePlacementUi();
     this.updateWaveUi(dt);
     this.updatePanel(dt);
@@ -818,6 +878,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     let y = sel.kind === 'squad' ? this.fillSquadPanel(sel) : this.fillBuildingPanel(sel);
     // Sell (and target) row.
     this.sellBtn.setLabel(this.sellArmed > 0 ? 'CONFIRM?' : 'SELL', `+⛁ ${this.gs.world.sellValue(sel)}`);
+    this.sellBtn.setVisible(!(sel.kind === 'squad' && sel.hero));
     this.targetBtn.setVisible(sel.kind === 'squad');
     if (sel.kind === 'squad') this.targetBtn.setLabel('TARGET', TARGET_LABEL[sel.targetMode]);
     this.targetBtn.setPosition(12, y);
@@ -828,7 +889,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     y += 54 + 12;
 
     // Panel geometry.
-    const maxH = this.H - HUD.top - 10 - HUD.bottom;
+    const maxH = this.H - HUD.top - 10 - HUD.bottom - (this.heroBar && this.panelSide === 'left' ? 72 : 0);
     const h = Math.min(y, maxH);
     if (h !== this.panelH) {
       this.panelH = h;
@@ -839,12 +900,36 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       this.sellBtn.redraw();
     }
     const px = this.panelSide === 'right' ? this.W - PANEL_W - 10 - this.inset.right : 10 + this.inset.left;
-    const py = HUD.top + 8;
+    const py = HUD.top + 8 + (this.heroBar && this.panelSide === 'left' ? 72 : 0);
     this.panel.setPosition(px, py);
     this.panelRect.setTo(px, py, PANEL_W, h);
   }
 
+  private fillHeroPanel(s: Squad): number {
+    const w = this.gs.world, h = s.hero!;
+    setText(this.panelTitle, `${h.def.name.toUpperCase()}`);
+    const next = HERO_LEVEL_XP[h.level - 1];
+    setText(this.panelSub, `${h.def.title} · Level ${h.level}${next ? ` · XP ${Math.floor(h.xp)}/${next}` : ' (max)'}\nTap the map to move. ${h.def.bio}`);
+    setText(this.panelInfo, this.describe(s));
+    this.panelInfo.setY(40 + this.panelSub.height);
+    let y = this.panelInfo.y + this.panelInfo.height + 10;
+    h.def.abilities.forEach((a, i) => {
+      const reason = w.checkHeroAbility(i);
+      const locked = h.level < a.level;
+      const state = reason === '' ? 'buy' : locked ? 'locked' : 'poor';
+      const btn = this.actions[i];
+      btn.setVisible(true).setPosition(12, y);
+      y += btn.set(a.name, locked ? `LV ${a.level}` : h.cds[i] > 0 ? `${Math.ceil(h.cds[i])}s` : 'USE', a.desc, state, 0xf2c14a) + 8;
+      btn.onTap = () => {
+        if (!w.useHeroAbility(i)) this.toast(w.checkHeroAbility(i));
+      };
+    });
+    this.actions[2].setVisible(false);
+    return y;
+  }
+
   private fillSquadPanel(s: Squad): number {
+    if (s.hero) return this.fillHeroPanel(s);
     const w = this.gs.world;
     const title = s.spec ? s.spec.name : s.def.name;
     setText(this.panelTitle, `${title.toUpperCase()}  ${ROMAN[s.tier]}${s.rank ? '  ' + '★'.repeat(s.rank) : ''}`);

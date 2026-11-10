@@ -265,6 +265,10 @@ export interface MissionDef {
   buildings: string[];
   /** Commander powers available (default: all). */
   powers?: string[];
+  /** Position on the campaign map (0–1 of the screen). */
+  campaignPos?: [number, number];
+  /** Short region name shown on the campaign map. */
+  region?: string;
   /** Endless survival: waves are generated forever (the `waves` list is ignored). */
   endless?: boolean;
 }
@@ -294,4 +298,73 @@ export interface PowerDef {
   unit?: string;
   tier?: number;
   duration?: number;
+}
+
+// ---------------------------------------------------------------- heroes
+
+export type HeroAbilityKind = 'rally' | 'scan' | 'shieldwall' | 'slam' | 'cloak' | 'mines';
+
+export interface HeroAbilityDef {
+  id: string;
+  name: string;
+  desc: string;
+  kind: HeroAbilityKind;
+  cooldown: number;
+  /** Hero level needed to use it. */
+  level: number;
+  radius: number;
+  duration: number;
+  /** Strength at level 1, and added per level after that. */
+  power: number;
+  powerPerLevel: number;
+}
+
+export interface HeroDef {
+  id: string;
+  name: string;
+  title: string;
+  bio: string;
+  art: string;
+  hp: number;
+  /** Own damage reduction. */
+  armor: number;
+  /** Walking speed (units/sec). */
+  speed: number;
+  blockCap: number;
+  weapon: WeaponDef;
+  /** Per level after 1: damage and hp multipliers (0.1 = +10% per level). */
+  damagePerLevel: number;
+  hpPerLevel: number;
+  abilities: [HeroAbilityDef, HeroAbilityDef];
+  /** Mission id that must be won to unlock this hero (none = available from the start). */
+  unlockedBy?: string;
+}
+
+// ---------------------------------------------------------------- global tech tree
+
+/** A permanent modifier from the tech tree. `unit` '*' = all units. */
+export type TechMod =
+  | { kind: 'unitStat'; unit: string; stat: 'damage' | 'rof' | 'range' | 'hp' | 'splash'; mult: number }
+  | { kind: 'unitCost'; unit: string; mult: number }
+  | { kind: 'aura'; heal: number }
+  | { kind: 'startSupplies'; add: number }
+  | { kind: 'commandCap'; add: number }
+  | { kind: 'sellRefund'; value: number }
+  | { kind: 'depotIncome'; mult: number }
+  | { kind: 'powerCooldown'; power: string; mult: number }
+  | { kind: 'powerStat'; power: string; stat: 'damage' | 'radius' | 'bombs' | 'duration' | 'tier' | 'stun'; add?: number; mult?: number }
+  | { kind: 'heroXp'; mult: number }
+  | { kind: 'heroRespawn'; mult: number }
+  | { kind: 'heroStartLevel'; add: number };
+
+export interface TechNode {
+  id: string;
+  branch: string;
+  name: string;
+  desc: string;
+  /** Stars to buy. */
+  cost: number;
+  /** Must own this node first. */
+  requires?: string;
+  mods: TechMod[];
 }

@@ -28,6 +28,20 @@ reloads by itself, so an update can't interrupt a mission.
 The tiny line of text at the bottom-left of the title screen shows the version, whether you're
 in the installed app or a browser tab, whether offline mode is ready, the screen size, and the FPS.
 
+**Campaign, heroes and tech (M4a):**
+- **Title → CAMPAIGN** opens the map of Kestrel's Reach. Missions unlock in order; tap one for its
+  briefing (enemies, new tools) and choose your **hero**, then DEPLOY.
+- **Heroes** (one per mission, free, no Command Cap): tap the hero (or the portrait under the top
+  bar), then tap anywhere, even the road, to move them. They level 1–10 from kills near them,
+  have two abilities (buttons next to the portrait; the second unlocks at level 3) and respawn
+  at the gate if they fall.
+  - **Cmdr. Rhea Kastellan:** Rally Cry (squads fire faster) / Tactical Scan (mark + reveal).
+  - **Sgt. "Bulwark" Okonjo** (win Mission 1): Shield Wall / Ground Slam.
+  - **Lt. Mara Venn** (win Mission 2): Cloak / Proximity Mines.
+- **Stars** (1–3 per mission; Endless gives 1/2/3 for reaching wave 10/20/30) buy permanent
+  upgrades in the **Tech Tree**: Infantry, Heavy, Support, Armor, Economy, Command (powers),
+  Heroes. Respec is free. Data: `src/data/heroes.ts`, `src/data/tech.ts`.
+
 **Mission 2: Dustline Junction (M3a):** two roads that merge, a flight route (dashed magenta
 arrows) and a dropship landing zone. New enemies:
 - **Veilstalker**: cloaked. Can't be targeted unless revealed by a **Sensor Pylon** (new building,

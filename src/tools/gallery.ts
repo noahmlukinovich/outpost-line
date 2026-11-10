@@ -10,7 +10,7 @@ import { WEAPON_FX } from '../render/weaponFx';
 import { FLASH_ORIGIN } from '../assets/fxArt';
 
 const IDS = [
-  'unit.rifle', 'unit.assault', 'unit.marksman', 'unit.heavy', 'unit.loader', 'unit.rocket', 'unit.gatling',
+  'hero.kastellan', 'hero.okonjo', 'hero.venn', 'unit.rifle', 'unit.assault', 'unit.marksman', 'unit.heavy', 'unit.loader', 'unit.rocket', 'unit.gatling',
   'unit.sniper', 'unit.spotter', 'unit.antimateriel', 'unit.engineer', 'unit.medic', 'unit.turret',
   'enemy.skitter', 'enemy.warden', 'enemy.ironback', 'enemy.veilstalker', 'enemy.skyray', 'enemy.tender', 'enemy.broodbarge', 'enemy.colossus', 'bld.sensor', 'veh.car.hull', 'veh.car.turret', 'veh.tank.hull', 'veh.tank.turret', 'veh.walker.hull', 'veh.walker.turret', 'fx.pod', 'bld.depot', 'bld.reactor',
   'cover.sandbags', 'cover.trench', 'cover.ruins', 'cover.bunker', 'prop.gate',

@@ -9,6 +9,8 @@ export const Missions: MissionDef[] = [
   {
     id: 'outpost01',
     name: 'Firebase Ridgeline',
+    campaignPos: [0.2, 0.64],
+    region: 'Ashfall Ridge',
     briefing: 'Choir scouts are probing the ridge road. Hold the gate for ten waves.',
     mapJson: outpost01Map,
     waves: Outpost01Waves,
@@ -21,6 +23,8 @@ export const Missions: MissionDef[] = [
   {
     id: 'outpost02',
     name: 'Dustline Junction',
+    campaignPos: [0.38, 0.4],
+    region: 'Dustline Flats',
     briefing: 'Two roads, one gate, and the Choir has learned to fly. Hold twelve waves.',
     mapJson: outpost02Map,
     waves: Outpost02Waves,
@@ -33,6 +37,8 @@ export const Missions: MissionDef[] = [
   {
     id: 'endless01',
     name: 'Endless: Firebase Ridgeline',
+    campaignPos: [0.84, 0.24],
+    region: 'The Breach',
     briefing: 'No relief is coming. Hold as long as you can.',
     mapJson: outpost01Map,
     waves: [],

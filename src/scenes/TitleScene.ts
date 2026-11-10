@@ -243,17 +243,11 @@ export class TitleScene extends Phaser.Scene {
     const bw = 300, bh = 58;
     const bx = right - bw;
     const top = H * 0.16 + titleSize * 0.75 + 36;
-    const stars = (id: string) => {
-      const n = save.mission(id)?.stars ?? 0;
-      return `${'★'.repeat(n)}${'☆'.repeat(3 - n)}`;
-    };
     const step = bh + 40;
-    this.menuButton(bx, top, bw, bh, 'MISSION 1', Palette.uiAmber, `Firebase Ridgeline  ·  ${stars('outpost01')}`, 'outpost01');
-    this.menuButton(bx, top + step, bw, bh, 'MISSION 2', Palette.uiAmber, `Dustline Junction  ·  ${stars('outpost02')}`, 'outpost02');
-    const runs = save.endlessRuns('endless01');
-    const bestRun = runs[0];
-    this.menuButton(bx, top + step * 2, bw, bh, 'ENDLESS', 0x7fd4e8,
-      bestRun ? `Survive as long as you can  ·  Best: wave ${bestRun.waves}` : 'Survive as long as you can', 'endless01');
+    this.menuButton(bx, top, bw, bh, 'CAMPAIGN', Palette.uiAmber, `Kestrel's Reach  ·  ★ ${save.totalStars()} earned`, 'campaign');
+    const bestRun = save.endlessRuns('endless01')[0];
+    this.menuButton(bx, top + step, bw, bh, 'ENDLESS', 0x7fd4e8, bestRun ? `Survive as long as you can  ·  Best: wave ${bestRun.waves}` : 'Survive as long as you can', 'endless01');
+    this.menuButton(bx, top + step * 2, bw, bh, 'TECH TREE', 0xb8b0a0, `★ ${save.availableStars()} to spend`, 'tech');
 
     this.statusText = this.add
       .text(Math.max(16, inset.left + 12), H - Math.max(14, inset.bottom + 8), '', {
@@ -294,7 +288,9 @@ export class TitleScene extends Phaser.Scene {
     });
     zone.on('pointerup', () => {
       sfx.click();
-      this.scene.start('Game', { missionId });
+      if (missionId === 'campaign') this.scene.start('Campaign');
+      else if (missionId === 'tech') this.scene.start('Tech');
+      else this.scene.start('Game', { missionId, hero: save.selectedHero });
     });
     zone.on('pointerout', () => draw(false));
   }

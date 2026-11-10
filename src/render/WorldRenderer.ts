@@ -19,13 +19,15 @@ import { MapView } from './MapView';
 import { WEAPON_POINTS, weaponOf } from '../assets/soldiers';
 import { TURRET_FX, VEHICLE_FX, WEAPON_FX, type WeaponFx } from './weaponFx';
 import { VEHICLE_POINTS } from '../assets/vehicleArt';
-import { Powers } from '../data/powers';
+import { HERO_LEVEL_XP } from '../data/heroes';
 import { FLASH_ORIGIN } from '../assets/fxArt';
 
 /** Units are drawn a bit larger than their simulation size so they read well on small screens. */
 export const UNIT_DRAW_SCALE = 1.4;
 /** Vehicles are big already; a smaller boost keeps them inside their footprint. */
 export const VEHICLE_SCALE = 1.2;
+/** Heroes stand a little taller than troopers. */
+export const HERO_SCALE = 1.25;
 
 type Img = Phaser.GameObjects.Image;
 
@@ -52,6 +54,7 @@ interface SquadView {
   arcKey: string;
   barsKey: string;
   artKey: string;
+  hero?: { ring: Img; tag: Phaser.GameObjects.Text; bubble: Img };
 }
 
 interface BuildingView {
@@ -97,6 +100,7 @@ export class WorldRenderer implements SimEvents {
   private enemyViews = new Map<Enemy, EnemyView>();
   private freeEnemyViews = new Map<string, EnemyView[]>();
   private shellViews: { shell: Img; shadow: Img; kind: string }[] = [];
+  private mineViews: Img[] = [];
   private t = 0;
   selected: Placeable | null = null;
   onIntegrityHit?: () => void;
@@ -235,7 +239,19 @@ export class WorldRenderer implements SimEvents {
       t.hull.setScale(t.hull.scale * VEHICLE_SCALE);
       t.shadow.setDisplaySize(70, 56);
     }
+    let hero: SquadView['hero'];
+    if (s.hero) {
+      const t = troopers[0];
+      t.body.setScale(t.body.scale * HERO_SCALE);
+      t.shadow.setDisplaySize(36, 36);
+      hero = {
+        ring: sc.add.image(0, 0, 'fx.ring').setTint(0xf2c14a).setBlendMode(Phaser.BlendModes.ADD).setDepth(Depth.decal).setDisplaySize(52, 52),
+        tag: sc.add.text(0, 0, '', { fontFamily: 'system-ui, -apple-system, sans-serif', fontSize: '11px', fontStyle: '900', color: '#f2c14a', stroke: '#000', strokeThickness: 3, resolution: 3 }).setOrigin(0.5).setDepth(Depth.bars),
+        bubble: sc.add.image(0, 0, 'fx.shieldBubble').setBlendMode(Phaser.BlendModes.ADD).setDepth(Depth.shield).setDisplaySize(64, 64).setVisible(false),
+      };
+    }
     return {
+      hero,
       squad: s,
       troopers,
       turrets: [],
@@ -312,8 +328,29 @@ export class WorldRenderer implements SimEvents {
     g.beginPath().arc(s.x, s.y, range, a0, a1).strokePath();
   }
 
+  private drawHeroBars(v: SquadView): void {
+    const s = v.squad, h = s.hero!;
+    const t = s.troopers[0];
+    const key = `${Math.round((t.hp / s.stats.hp) * 30)}|${Math.round(h.xp)}|${h.level}|${s.down ? Math.ceil(s.downTimer) : -1}|${s.x.toFixed(0)},${s.y.toFixed(0)}`;
+    if (key === v.barsKey) return;
+    v.barsKey = key;
+    const g = v.bars.clear();
+    if (s.down) {
+      g.lineStyle(3, 0xf2c14a, 0.8).beginPath().arc(s.x, s.y, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - s.downTimer / 22)).strokePath();
+      return;
+    }
+    const w = 40, x0 = s.x - w / 2, y = s.y + 26;
+    const f = t.alive ? t.hp / s.stats.hp : 0;
+    g.fillStyle(0x000000, 0.7).fillRect(x0 - 1, y - 1, w + 2, 9);
+    g.fillStyle(f > 0.5 ? 0x7be08a : f > 0.25 ? 0xf2c14a : 0xff5a4a, 1).fillRect(x0, y, w * f, 4);
+    const lo = h.level <= 1 ? 0 : HERO_LEVEL_XP[h.level - 2], hi = HERO_LEVEL_XP[h.level - 1];
+    const xf = hi ? (h.xp - lo) / (hi - lo) : 1;
+    g.fillStyle(0xf2c14a, 1).fillRect(x0, y + 5, w * Math.min(1, xf), 2);
+  }
+
   private drawBars(v: SquadView): void {
     const s = v.squad;
+    if (s.hero) return this.drawHeroBars(v);
     const max = s.stats.hp;
     let key = `${s.tier}|${s.rank}|${s.spec?.id}|${s.down ? Math.ceil(s.downTimer * 4) : -1}|${s.x.toFixed(0)},${s.y.toFixed(0)}|${Math.ceil(s.expires * 2)}`;
     for (const t of s.troopers) key += t.alive ? `|${Math.round((t.hp / max) * 8)}` : '|x';
@@ -341,7 +378,7 @@ export class WorldRenderer implements SimEvents {
     if (s.expires > 0) {
       const tw = n * (w + gap) - gap;
       g.fillStyle(0x000000, 0.6).fillRect(x0 - 1, y + 5, tw + 2, 4);
-      g.fillStyle(Palette.fdcAccent, 1).fillRect(x0, y + 6, tw * Math.min(1, s.expires / (Powers.droppod.duration ?? 30)), 2);
+      g.fillStyle(Palette.fdcAccent, 1).fillRect(x0, y + 6, tw * Math.min(1, s.expires / (this.world.powerDefs.droppod.duration ?? 30)), 2);
     }
     // Tier chevrons (filled cyan diamond once specialized), then veterancy stars.
     const marks = s.tier + 1 + (s.spec ? 1 : 0);
@@ -421,6 +458,15 @@ export class WorldRenderer implements SimEvents {
       this.drawArc(v);
       this.drawBars(v);
       for (let i = 0; i < s.troopers.length; i++) this.updateTrooper(v.troopers[i], s.troopers[i], s, alpha);
+      if (v.hero && s.hero) {
+        const t = s.troopers[0];
+        const x = lerp(t.prevX, t.x, alpha), y = lerp(t.prevY, t.y, alpha);
+        v.hero.ring.setVisible(!s.down).setPosition(x, y).setAlpha(0.45 + 0.25 * Math.sin(this.t * 3));
+        v.hero.tag.setVisible(!s.down).setPosition(x, y - 30);
+        if (v.hero.tag.text !== `LV ${s.hero.level}`) v.hero.tag.setText(`LV ${s.hero.level}`);
+        v.hero.bubble.setVisible(!s.down && s.hero.shieldT > 0).setPosition(x, y).setAlpha(0.5 + 0.2 * Math.sin(this.t * 8));
+        v.troopers[0].body.setAlpha(s.hero.cloakT > 0 ? 0.3 + 0.1 * Math.sin(this.t * 10) : 1);
+      }
       for (let i = 0; i < v.turrets.length; i++) {
         const tv = v.turrets[i], tu = s.turrets[i];
         tv.body.setPosition(tu.x, tu.y).setRotation(tu.angle);
@@ -441,6 +487,19 @@ export class WorldRenderer implements SimEvents {
       if (!e.alive) continue;
       const v = this.enemyViews.get(e);
       if (v) this.updateEnemy(v, e, alpha, dt);
+    }
+
+    // Mines: matched by index.
+    const mines = this.world.mines;
+    while (this.mineViews.length < mines.length) this.mineViews.push(addArt(this.scene, 'fx.mine').setDepth(Depth.decal + 0.5));
+    for (let i = 0; i < this.mineViews.length; i++) {
+      const m = mines[i];
+      const img = this.mineViews[i];
+      if (!m) {
+        img.setVisible(false);
+        continue;
+      }
+      img.setVisible(true).setPosition(m.x, m.y).setAlpha(m.arm > 0 ? 0.5 : Math.sin(this.t * 8 + i) > 0 ? 1 : 0.7);
     }
 
     // Shells/rockets: views are matched to the projectile list by index each frame.
@@ -856,6 +915,52 @@ export class WorldRenderer implements SimEvents {
     sfx.promote();
   }
 
+  heroLevel(s: Squad): void {
+    this.fx.ring(s.x, s.y, 10, 70, 0xf2c14a, 0.6);
+    this.fx.light(s.x, s.y, 180, 0xf2c14a, 0.6, 0.5);
+    this.fx.embers.explode(14, s.x, s.y);
+    this.fx.number(s.x, s.y - 40, `LEVEL ${s.hero!.level}!`, 0xf2c14a, true);
+    sfx.promote();
+  }
+
+  heroAbility(s: Squad, kind: string): void {
+    const h = s.hero!;
+    const a = h.def.abilities.find((q) => q.kind === kind)!;
+    switch (kind) {
+      case 'rally':
+        this.fx.ring(s.x, s.y, 20, a.radius, 0xf2c14a, 0.6);
+        this.fx.light(s.x, s.y, a.radius * 2, 0xf2c14a, 0.4, 0.6);
+        sfx.waveHorn();
+        break;
+      case 'scan':
+        this.fx.ring(s.x, s.y, 10, a.radius, 0x9a7aff, 0.8);
+        this.fx.ring(s.x, s.y, 10, a.radius * 0.6, 0x9a7aff, 0.5);
+        sfx.lockOn();
+        break;
+      case 'shieldwall':
+        this.fx.ring(s.x, s.y, 40, 20, Palette.shield, 0.3);
+        sfx.shieldBreak();
+        break;
+      case 'slam':
+        this.fx.ring(s.x, s.y, 10, a.radius * 1.2, 0xd8c0a0, 0.45);
+        this.fx.dust.explode(26, s.x, s.y);
+        this.fx.debris(s.x, s.y, 6, 'fx.chunk', a.radius * 3, 1);
+        this.fx.shake(0.008, 220);
+        sfx.explosion();
+        break;
+      case 'cloak':
+        this.fx.shards.explode(14, s.x, s.y);
+        this.fx.ring(s.x, s.y, 30, 6, 0x47e0ff, 0.3);
+        sfx.empCharge();
+        break;
+      case 'mines':
+        this.fx.number(s.x, s.y - 30, 'MINES LAID', 0xff8a3a);
+        sfx.place();
+        break;
+    }
+    this.fx.number(s.x, s.y - 44, a.name.toUpperCase(), 0xf2c14a, true);
+  }
+
   squadRemoved(s: Squad, refund: number): void {
     const v = this.squadViews.get(s);
     if (v) {
@@ -882,7 +987,7 @@ export class WorldRenderer implements SimEvents {
 
   powerUsed(id: string, x: number, y: number, x2: number, y2: number, delay: number): void {
     if (id === 'orbital') {
-      const r = Powers.orbital.radius;
+      const r = this.world.powerDefs.orbital.radius;
       this.fx.ring(x, y, r * 2, r * 0.6, 0xff3a3a, delay);
       this.fx.ring(x, y, r * 1.2, r, 0xff3a3a, delay * 0.6);
       this.fx.flash('fx.light', x, y, 0, 0.2, 0.6, delay, 0xff3030, 0.5, Depth.light);
@@ -890,7 +995,7 @@ export class WorldRenderer implements SimEvents {
     } else if (id === 'airstrike') {
       const dx = x2 - x, dy = y2 - y, len = Math.hypot(dx, dy) || 1;
       const ux = dx / len, uy = dy / len;
-      const total = delay + (Powers.airstrike.bombs ?? 6) * 0.08 + 0.3;
+      const total = delay + (this.world.powerDefs.airstrike.bombs ?? 6) * 0.08 + 0.3;
       // The jet's shadow sweeps in from off-screen, across the line and out the far side.
       this.fx.mover('fx.jet', x - ux * 500, y - uy * 500, x2 + ux * 300, y2 + uy * 300, total, ART_SCALE * 2.2, 0x000000, 0.35, false, Depth.light);
       for (let i = 0; i <= 8; i++) {

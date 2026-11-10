@@ -9,7 +9,7 @@ type G = Phaser.GameObjects.Graphics;
 
 export type WeaponKind =
   | 'carbine' | 'dmr' | 'shotgun' | 'launcher' | 'rocket' | 'gatling'
-  | 'sniper' | 'amr' | 'binocs' | 'tool' | 'smg' | 'medkit';
+  | 'sniper' | 'amr' | 'binocs' | 'tool' | 'smg' | 'medkit' | 'shield';
 export type PackKind = 'pack' | 'tank' | 'ammo' | 'radio' | 'tools' | 'medic' | 'belt' | 'none';
 
 export interface SoldierLook {
@@ -23,6 +23,10 @@ export interface SoldierLook {
   lamp?: boolean;
   cross?: boolean;
   stripes?: boolean;
+  /** Hero cape color (drawn behind the shoulders). */
+  cape?: number;
+  /** Gold crest on the helmet (officers). */
+  crest?: boolean;
 }
 
 export const SOLDIER_W = 40;
@@ -176,6 +180,17 @@ function weapon(g: G, kind: WeaponKind, accent: number): void {
       g.fillStyle(0xffd27a, 1).fillCircle(25.5, 9.9, 1.3);
       break;
     }
+    case 'shield': {
+      // SMG at the hip, big riot shield across the front.
+      g.fillStyle(GUN, 1).fillRect(12, 18.6, 10, 2.2);
+      g.fillStyle(0x0d0f10, 1).fillRect(21, 18.8, 4, 1.6);
+      g.fillStyle(0x0b0d0f, 1).fillRoundedRect(18.2, 1.8, 6.4, 24.4, 2);
+      g.fillStyle(0x4b5560, 1).fillRoundedRect(18.8, 2.4, 5.2, 23.2, 1.8);
+      g.fillStyle(0x6b7782, 1).fillRect(21.6, 3.5, 1.4, 21);
+      g.fillStyle(accent, 1).fillRect(19.4, 12.2, 4, 1.4);
+      g.fillStyle(0x9fe8ff, 0.7).fillRect(19.6, 6, 1.2, 4); // view slit
+      break;
+    }
     case 'medkit': {
       g.fillStyle(GUN, 1).fillRect(10, 16.8, 9, 2.2);
       g.fillStyle(GUN_LIGHT, 1).fillRect(12, 16.2, 5, 3.2);
@@ -198,6 +213,7 @@ function hands(kind: WeaponKind): [[number, number], [number, number]] {
     case 'binocs': return [[18, 11.8], [18, 16.2]];
     case 'tool': return [[18.5, 10], [14, 18.6]];
     case 'medkit': return [[18.5, 10], [14, 18.6]];
+    case 'shield': return [[18.6, 9], [14, 19.6]];
     case 'shotgun': return [[22.5, 17.5], [14, 18.8]];
     default: return [[23, 17.6], [14.5, 18.6]];
   }
@@ -205,6 +221,12 @@ function hands(kind: WeaponKind): [[number, number], [number, number]] {
 
 export function drawSoldier(g: G, look: SoldierLook): void {
   const armor = look.armor, dark = look.armorDark;
+  if (look.cape) {
+    // Cape flowing back from the shoulders.
+    g.fillStyle(0x0b0d0f, 0.8).fillPoints([new Phaser.Math.Vector2(12, 4.5), new Phaser.Math.Vector2(1, 2), new Phaser.Math.Vector2(-0.5, 14), new Phaser.Math.Vector2(1, 26), new Phaser.Math.Vector2(12, 23.5)], true);
+    g.fillStyle(look.cape, 1).fillPoints([new Phaser.Math.Vector2(11.5, 5.5), new Phaser.Math.Vector2(2, 3.5), new Phaser.Math.Vector2(0.8, 14), new Phaser.Math.Vector2(2, 24.5), new Phaser.Math.Vector2(11.5, 22.5)], true);
+    g.lineStyle(0.8, 0x000000, 0.35).lineBetween(6, 5, 4, 23).lineBetween(9, 5, 8, 23);
+  }
   pack(g, look);
 
   // Torso: wide armored shoulders (the y axis is "across the shoulders" when facing right).
@@ -271,6 +293,10 @@ export function drawSoldier(g: G, look: SoldierLook): void {
     g.fillStyle(0xffffff, 0.85).fillRect(15.8, 11.9, 0.7, 1.4);
     if (look.cross) g.fillStyle(0x3fbf6a, 1).fillRect(9.8, 13.4, 3.2, 1.2).fillRect(10.8, 12.4, 1.2, 3.2);
     if (look.lamp) g.fillStyle(0xfff2c4, 1).fillRect(14, 9.6, 1.5, 1.5);
+    if (look.crest) {
+      g.fillStyle(0xf2c14a, 1).fillRect(7.5, 13.2, 6.5, 1.6);
+      g.fillStyle(0xffe08a, 1).fillRect(8, 13.5, 5, 0.6);
+    }
     g.lineStyle(0.6, 0x111111, 1).lineBetween(9.6, 10.6, 7.6, 9);
   }
 }
@@ -291,6 +317,9 @@ export const SoldierLooks: Record<string, SoldierLook> = {
   'unit.antimateriel': { weapon: 'amr', pack: 'none', armor: 0x4a5a36, armorDark: 0x34402a, accent: 0x47e0ff, hood: true },
   'unit.spotter': { weapon: 'binocs', pack: 'radio', armor: 0x55614a, armorDark: 0x384032, accent: 0x47e0ff },
   'unit.engineer': { weapon: 'tool', pack: 'tools', armor: 0x6e6a5e, armorDark: 0x46443c, accent: 0xf2a93b, stripes: true, lamp: true, helmet: 0xf2c14a },
+  'hero.kastellan': { weapon: 'carbine', pack: 'radio', armor: 0x34405a, armorDark: 0x222a3c, accent: 0xf2c14a, cape: 0x9a2a2a, crest: true, stripes: true },
+  'hero.okonjo': { weapon: 'shield', pack: 'ammo', armor: 0x5a5040, armorDark: 0x3a3428, accent: 0xff8a3a, cape: 0x3a3a3a, stripes: true, helmet: 0x9aa3aa },
+  'hero.venn': { weapon: 'sniper', pack: 'none', armor: 0x2f4a4a, armorDark: 0x1f3232, accent: 0x47e0ff, hood: true, cape: 0x2a5a5a },
   'unit.medic': { weapon: 'medkit', pack: 'medic', armor: 0xb9c2c9, armorDark: 0x7d8790, accent: 0x3fbf6a, cross: true, helmet: 0xe8eef2 },
 };
 
@@ -308,6 +337,7 @@ export const WEAPON_POINTS: Record<WeaponKind, { muzzle: [number, number]; eject
   binocs: { muzzle: [22, 14], eject: [16, 14] },
   tool: { muzzle: [25.5, 17.8], eject: [15, 16.4] },
   medkit: { muzzle: [25.5, 17.8], eject: [15, 16.4] },
+  shield: { muzzle: [25.5, 19.6], eject: [15, 18] },
 };
 
 /** Weapon kind used by a soldier art ID (falls back to a carbine for sprite-pack art). */

@@ -5,6 +5,8 @@ import { BootScene } from './scenes/BootScene';
 import { TitleScene } from './scenes/TitleScene';
 import { GameScene } from './scenes/GameScene';
 import { UIScene } from './ui/UIScene';
+import { CampaignScene } from './scenes/CampaignScene';
+import { TechScene } from './scenes/TechScene';
 
 setupPwa();
 
@@ -24,7 +26,7 @@ const game = new Phaser.Game({
   render: { antialias: true, powerPreference: 'high-performance' },
   input: { activePointers: 3 }, // allows two-finger pinch + one spare
   disableContextMenu: true,
-  scene: [BootScene, TitleScene, GameScene, UIScene],
+  scene: [BootScene, TitleScene, CampaignScene, TechScene, GameScene, UIScene],
 });
 
 // Dev-only handle for automated testing in the browser console.

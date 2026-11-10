@@ -179,6 +179,12 @@ export function generateFxArt(scene: Phaser.Scene): void {
     g.fillStyle(0x15140f, 0.7).fillCircle(3, 3, 2.2);
     g.fillStyle(0x15140f, 0.35).fillCircle(3, 3, 3);
   });
+  bake('fx.mine', 12, 12, (g) => {
+    g.fillStyle(0x15181b, 1).fillCircle(6, 6, 5.5);
+    g.fillStyle(0x4b5560, 1).fillCircle(6, 6, 4.2);
+    g.lineStyle(0.8, 0xf2a93b, 1).strokeCircle(6, 6, 4.2);
+    g.fillStyle(0xff3a3a, 1).fillCircle(6, 6, 1.4);
+  });
   bake('icon.orbital', 24, 24, (g) => {
     g.lineStyle(2, 0xff5a3a, 1).strokeCircle(12, 12, 8);
     g.lineBetween(12, 1, 12, 7).lineBetween(12, 17, 12, 23).lineBetween(1, 12, 7, 12).lineBetween(17, 12, 23, 12);

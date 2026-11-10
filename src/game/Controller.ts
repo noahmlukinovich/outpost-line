@@ -12,7 +12,6 @@ import { sfx } from '../audio/Sfx';
 import { getCover } from '../data/cover';
 import { getUnit } from '../data/units';
 import type { PointerTarget } from '../input/types';
-import { Powers } from '../data/powers';
 import type { PowerId } from '../data/types';
 import { VEHICLE_SCALE } from '../render/WorldRenderer';
 import { Depth } from '../render/depth';
@@ -252,9 +251,21 @@ export class Controller implements PointerTarget {
         bestD = d;
       }
     }
+    // With the hero selected, tapping open ground sends the hero there.
+    const sel = this.selected;
+    if (!best && sel?.kind === 'squad' && sel.hero && !sel.down) {
+      const r = this.world.setRally(sel, x, y);
+      if (r.x === x && r.y === y) {
+        this.moveMarker = { x, y, t: 0.6 };
+        sfx.click();
+      }
+      return;
+    }
     if (best) sfx.click();
     this.select(best);
   }
+
+  private moveMarker: { x: number; y: number; t: number } | null = null;
 
   /** 15° steps make it easy to line arcs up with roads. */
   private snapAngle(a: number): number {
@@ -268,8 +279,14 @@ export class Controller implements PointerTarget {
     this.t += dt;
     const g = this.g.clear();
     this.flag.setVisible(false);
+    if (this.moveMarker) {
+      const m = this.moveMarker;
+      m.t -= dt;
+      g.lineStyle(2.5, 0xf2c14a, Math.max(0, m.t / 0.6)).strokeCircle(m.x, m.y, 8 + (0.6 - m.t) * 30);
+      if (m.t <= 0) this.moveMarker = null;
+    }
     if (this.power && this.aim.active) {
-      const def = Powers[this.power];
+      const def = this.world.powerDefs[this.power];
       const a = this.aim;
       const ok = !this.world.checkPower(this.power, a.x, a.y);
       const col = ok ? (this.power === 'emp' ? 0x6fc8ff : this.power === 'droppod' ? Palette.fdcAccent : 0xff5a3a) : 0x888888;
@@ -347,9 +364,11 @@ export class Controller implements PointerTarget {
       return;
     }
     const s = sel;
-    // Leash circle (where the rally point may go).
-    g.lineStyle(1.5, 0xffffff, 0.25);
-    this.dashedCircle(g, s.anchorX, s.anchorY, s.def.leash);
+    // Leash circle (where the rally point may go). Heroes roam freely.
+    if (!s.hero) {
+      g.lineStyle(1.5, 0xffffff, 0.25);
+      this.dashedCircle(g, s.anchorX, s.anchorY, s.def.leash);
+    }
     // Selection ring.
     g.lineStyle(2.5, Palette.uiAmber, 0.6 + 0.4 * pulse).strokeCircle(s.x, s.y, s.def.footprint + 4);
     // Line from squad to rally point.

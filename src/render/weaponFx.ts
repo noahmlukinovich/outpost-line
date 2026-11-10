@@ -40,6 +40,7 @@ export const WEAPON_FX: Record<WeaponKind, WeaponFx> = {
   amr: { flash: ['fx.mf.brake'], flashLen: 60, flashTint: 0xfff0d0, glow: 190, glowColor: 0xffe0b0, smoke: 6, casing: 'big', casingEvery: 1, tracerColor: 0xfff0c8, tracerLen: 140, tracerWidth: 3.2, tracerSpeed: 3400, shake: 0.0025 },
   launcher: { flash: ['fx.mf.thump'], flashLen: 26, flashTint: 0xffd0a0, glow: 110, glowColor: 0xffa050, smoke: 5, casing: 'shell', casingEvery: 1, tracerColor: 0xffffff, tracerLen: 0, tracerWidth: 0, tracerSpeed: 0, shake: 0.001 },
   rocket: { flash: ['fx.mf.thump'], flashLen: 30, flashTint: 0xffd0a0, glow: 130, glowColor: 0xffa050, smoke: 6, casing: null, casingEvery: 1, tracerColor: 0xffffff, tracerLen: 0, tracerWidth: 0, tracerSpeed: 0, shake: 0.0015 },
+  shield: { flash: ['fx.mf.wide'], flashLen: 20, flashTint: 0xffd890, glow: 70, glowColor: 0xffb060, smoke: 1, casing: 'big', casingEvery: 2, tracerColor: 0xffd070, tracerLen: 22, tracerWidth: 1.4, tracerSpeed: 1500, shake: 0 },
   binocs: { flash: CONE, flashLen: 14, flashTint: 0xffe2a0, glow: 40, glowColor: 0xffc870, smoke: 0, casing: 'small', casingEvery: 1, tracerColor: 0xffe08a, tracerLen: 24, tracerWidth: 1.2, tracerSpeed: 1600, shake: 0 },
 };
 

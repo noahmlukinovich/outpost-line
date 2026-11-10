@@ -46,4 +46,6 @@ export interface SimEvents {
   bomb?(x: number, y: number, radius: number): void;
   emp?(x: number, y: number, radius: number): void;
   podLanded?(squad: Squad): void;
+  heroLevel?(hero: Squad): void;
+  heroAbility?(hero: Squad, kind: string): void;
 }

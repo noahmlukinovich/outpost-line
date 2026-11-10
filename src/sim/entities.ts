@@ -73,6 +73,32 @@ export interface Squad {
   auraReinforce: number;
   /** Seconds left for temporary squads (drop pods); 0 = permanent. */
   expires: number;
+  /** Set only for the hero. */
+  hero?: HeroState;
+  /** Temporary fire-rate buff (Rally Cry). */
+  buffRofT: number;
+  buffRof: number;
+}
+
+export interface HeroState {
+  def: import('../data/types').HeroDef;
+  level: number;
+  xp: number;
+  /** Ability cooldowns (seconds left). */
+  cds: [number, number];
+  shieldT: number;
+  cloakT: number;
+}
+
+export interface Mine {
+  x: number;
+  y: number;
+  damage: number;
+  radius: number;
+  /** Seconds until armed. */
+  arm: number;
+  life: number;
+  owner: Squad | null;
 }
 
 export interface Building {
