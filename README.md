@@ -5,8 +5,8 @@ Design: see [GAME_DESIGN.md](GAME_DESIGN.md).
 
 **Play:** https://noahmlukinovich.github.io/outpost-line/ (live once GitHub Pages is set up, see below)
 
-**Status:** Milestone 0: project setup, offline install and deploy pipeline. The title screen runs
-a small live skirmish to check the art style, effects, audio and performance on your iPad.
+**Status:** Milestone 1: one full mission (Firebase Ridgeline, 10 waves) with free placement,
+cover, firing arcs, rally points, Rifle + Heavy Weapons squads (tiers I–III) and three enemy types.
 
 ---
 
@@ -26,6 +26,26 @@ reloads by itself, so an update can't interrupt a mission.
 
 The tiny line of text at the bottom-left of the title screen shows the version, whether you're
 in the installed app or a browser tab, whether offline mode is ready, the screen size, and the FPS.
+
+---
+
+## How to play (controls)
+
+| Do this | Gesture |
+|---|---|
+| Place a squad | Tap a card at the bottom, then drag the ghost (or tap where it should go) and tap **✔**. Or drag straight from the card onto the map. Nothing is spent until ✔. |
+| Use cover | Drop a squad near a glowing ring (sandbags, trench, ruins, bunker); it snaps in. Cover cuts damage taken and some cover adds range. |
+| Select a squad | Tap it. The panel shows stats, **Upgrade**, **Target** priority and **Sell** (tap twice). |
+| Aim (rotate the arc) | Drag the round amber handle in front of the selected squad. It snaps in 15° steps. |
+| Move the rally point | Drag the blue flag. It stays inside the dashed leash circle. Put close-range squads beside the road to **block** melee enemies. |
+| Pan / zoom | Drag empty ground / pinch with two fingers |
+| Start / call waves | Tap **START WAVE**. Between waves, tap once for intel, again to **call early** for bonus supplies. |
+| Pause, speed, settings | Top-right buttons: pause, 1×/2×, menu (damage numbers, shake, sound, restart). |
+
+Rules of thumb: Skitters swarm (use Heavy Weapons splash), Wardens have regenerating shields
+and shoot back (focus fire, use cover), Ironbacks are heavily armored and go berserk when hurt
+(explosives). Squads that get wiped out are **Down** for 12 s, then redeploy. Lost troopers
+return on their own when the squad is out of combat. Selling before the next wave starts refunds 100%.
 
 ---
 
@@ -56,6 +76,7 @@ Open http://localhost:5173 in Chrome. Saving a file reloads the game instantly.
 | `npm run dev` | Dev server on this machine only |
 | `npm run dev:lan` | Dev server reachable from other devices on your Wi-Fi |
 | `npm test` | Run unit tests |
+| `npm run balance` | Simulate mission 1 with scripted builds and print a wave-by-wave report |
 | `npm run typecheck` | Check TypeScript types |
 | `npm run build` | Production build into `dist/` |
 | `npm run preview` | Serve the production build (with the service worker active) |
@@ -95,20 +116,59 @@ to GitHub Pages in about 1–2 minutes. Open the app on the iPad and tap **Updat
 
 ```
 src/
-  main.ts            Game setup, screen-size handling
-  app/               Display (retina/safe areas), PWA/service worker
-  assets/            Palette + placeholder art generator (later: sprite manifest)
-  audio/             Placeholder synthesized sound effects
-  core/              Shared utilities (object pool)
-  scenes/            Phaser scenes (Boot, Title)
-public/icons/        App icons (SVG source + generated PNGs)
-GAME_DESIGN.md       The design document
+  data/       ← BALANCE: units.ts, enemies.ts, cover.ts, balance.ts, waves/, missions.ts
+  maps/       ← MAPS: Tiled .tmj files + loader/geometry
+  sim/        Game rules only (no graphics): World, entities, RNG, spatial hash, autoplay bot
+  render/     Draws the sim: map, units, effects (all pooled)
+  input/      Touch gestures → commands; camera pan/zoom (gamepad plugs in here in M5)
+  game/       Controller: selection, placement ghost, handles
+  ui/         HUD scene and widgets
+  save/       Save system (settings + mission stars)
+  audio/      Synthesized placeholder sound effects
+  assets/     Palette, placeholder art, art registry
+  scenes/     Boot, Title, Game
+public/assets/manifest.json   ← which art each ID uses (sprite packs)
 ```
 
-Coming in M1, per the design doc: `src/data/` (balance files you edit), `src/maps/`, `src/sim/`
-(game rules), `src/render/`, `src/input/`, `src/ui/`, `src/save/`.
+The simulation never imports Phaser: it runs at a fixed 30 steps/second, and the renderer
+interpolates between steps. That's why 2× speed, pause and the headless balance tests are easy.
 
 ## Editing balance
 
-From Milestone 1, all unit, enemy and wave numbers live in `src/data/*.ts`, with comments
-explaining each field. Edit a number and save: the dev server reloads, or push to deploy.
+All numbers live in `src/data/`, with a comment on every field:
+
+- **`units.ts`**: cost, damage, fire rate, range, HP per tier; arc width; leash; how many enemies a squad can block.
+- **`enemies.ts`**: HP, shields (and regen), armor, speed, bounty, how much integrity they cost if they leak, attacks.
+- **`cover.ts`**: damage reduction and range bonus per cover type.
+- **`balance.ts`**: global rules: sell refund, wave countdown, call-early bonus, reinforce/down timers, armor pierce per damage type, star thresholds.
+- **`waves/outpost01.ts`**: what spawns in each wave, when, and the clear bonus.
+- **`missions.ts`**: starting supplies, integrity, which units are available.
+
+Edit, save, and the dev server reloads. Run `npm run balance` to see how a scripted "good",
+"half-hearted" and "lazy" commander fare after your change. If you mistype a field name,
+`npm run typecheck` (and the deploy) fails and points to the line.
+
+## Editing maps (Tiled)
+
+Maps are [Tiled](https://www.mapeditor.org/) files (`src/maps/*.tmj`) using object layers only:
+
+| Layer | Objects | Properties |
+|---|---|---|
+| `paths` | Polylines from spawn to the gate | `width` (float) |
+| `zones` | Polygons | `kind` = `blocked` or `buildable`; `look` = `rock`/`water`/`cliff` |
+| `cover` | Points | `coverType` = `sandbags`/`trench`/`ruins`/`bunker` |
+| `decor` | Points | `prop` = `floodlight`/`crate`/`wreck` |
+
+The loader validates the map on start. `npm test` also checks that every cover point is a legal
+placement spot.
+
+## Using a sprite pack
+
+1. Put the files in `public/assets/packs/<pack-name>/`.
+2. In `public/assets/manifest.json`, point an art ID at them:
+   ```json
+   "enemy.skitter": { "type": "image", "url": "packs/my-pack/bug.png", "scale": 0.5, "rotation": 90 }
+   ```
+   or, for an atlas, add it under `"atlases"` and use `{ "type": "atlas", "atlas": "name", "frame": "bug.png" }`.
+   `rotation` fixes sprites that face up instead of right; `scale` sizes them (units are ~24 units wide).
+3. Reload. Anything missing or broken falls back to the built-in placeholder.

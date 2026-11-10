@@ -10,6 +10,8 @@ import { Palette } from './palette';
 
 type G = Phaser.GameObjects.Graphics;
 
+const v2 = (pts: { x: number; y: number }[]) => pts.map((p) => new Phaser.Math.Vector2(p.x, p.y));
+
 /** Textures are drawn at 2x so they stay sharp when the camera zooms in. */
 const S = 2;
 
@@ -130,15 +132,190 @@ function groundTexture(scene: Phaser.Scene, key: string, size: number): void {
   tex.refresh();
 }
 
+
+function heavyGunner(g: G): void {
+  // 24x24, facing right: trooper shouldering a stubby grenade launcher.
+  g.fillStyle(0x3d4a3a, 1).fillRect(10, 12.6, 14, 4.6); // launcher tube
+  g.fillStyle(Palette.fdcWeapon, 1).fillRect(20, 12, 3, 5.6); // muzzle
+  g.fillStyle(Palette.fdcBody, 1).fillEllipse(11, 12, 13, 18);
+  g.fillStyle(0x6b5a3a, 1).fillRoundedRect(3, 6, 6, 12, 2); // ammo pack
+  g.fillStyle(Palette.fdcHelmet, 1).fillCircle(12.5, 11.5, 4.8);
+  g.fillStyle(Palette.fdcAccent, 1).fillRect(15.8, 10, 1.6, 3.2);
+  g.lineStyle(1, 0x0b0d0f, 0.8).strokeEllipse(11, 12, 13, 18);
+}
+
+function warden(g: G): void {
+  // 32x32, facing right: hulking shielded warrior with an energy lance.
+  g.fillStyle(Palette.choirShell, 1).fillRect(16, 9, 15, 3); // lance
+  g.fillStyle(Palette.choirCore, 1).fillCircle(30, 10.5, 2.2);
+  g.fillStyle(Palette.choirShell, 1).fillEllipse(14, 16, 16, 26); // pauldrons
+  g.fillStyle(Palette.choirBody, 1).fillEllipse(15, 16, 13, 20);
+  g.fillStyle(0x6fc8ff, 0.9).fillTriangle(9, 9, 13, 16, 9, 23); // shield emitter
+  g.fillStyle(Palette.choirShell, 1).fillEllipse(20, 16, 8, 9); // head crest
+  g.fillStyle(Palette.choirCore, 1).fillCircle(22, 16, 1.8);
+  g.lineStyle(1, 0x200815, 0.9).strokeEllipse(14, 16, 16, 26);
+}
+
+function ironback(g: G): void {
+  // 48x48, facing right: armored war-beast with overlapping plates.
+  g.fillStyle(0x2c1022, 1).fillEllipse(22, 24, 40, 34);
+  g.fillStyle(0x4b4552, 1);
+  for (let i = 0; i < 4; i++) g.fillEllipse(10 + i * 7, 24, 12, 30 - i * 3); // armor plates
+  g.lineStyle(1.2, 0x1a1720, 1);
+  for (let i = 0; i < 4; i++) g.strokeEllipse(10 + i * 7, 24, 12, 30 - i * 3);
+  g.fillStyle(Palette.choirBody, 1).fillEllipse(38, 24, 14, 13); // head
+  g.fillStyle(0xd9d2c0, 1).fillTriangle(42, 18, 47, 15, 44, 21).fillTriangle(42, 30, 47, 33, 44, 27); // tusks
+  g.fillStyle(Palette.choirCore, 1).fillCircle(41, 24, 2);
+  g.fillStyle(Palette.choirCore, 0.8).fillCircle(14, 13, 1.5).fillCircle(14, 35, 1.5); // vents
+}
+
+function trench(g: G): void {
+  // 64x36: zig-zag trench with sandbag lip on the road side (right).
+  g.fillStyle(0x1a1610, 1).fillRoundedRect(10, 4, 30, 28, 6);
+  g.fillStyle(0x0e0c08, 1).fillRoundedRect(14, 8, 22, 20, 4);
+  for (let i = 0; i < 6; i++) {
+    g.fillStyle(Palette.sandbagDark, 1).fillRoundedRect(40, 2 + i * 5.4, 9, 6, 2);
+    g.fillStyle(Palette.sandbag, 1).fillRoundedRect(39.5, 1.6 + i * 5.4, 8.5, 5.4, 2);
+  }
+  g.lineStyle(1, 0x5e5238, 0.6).strokeRoundedRect(10, 4, 30, 28, 6);
+}
+
+function ruins(g: G): void {
+  // 64x64: broken concrete walls (L-shape) open to the back (left).
+  const wall = (x: number, y: number, w: number, h: number) => {
+    g.fillStyle(0x4d4d48, 1).fillRect(x, y, w, h);
+    g.fillStyle(0x6c6b63, 1).fillRect(x, y, w, Math.min(h, 3));
+  };
+  wall(44, 8, 8, 20);
+  wall(44, 36, 8, 22);
+  wall(20, 8, 26, 7);
+  wall(14, 50, 20, 7);
+  g.fillStyle(0x6c6b63, 1).fillCircle(56, 31, 2.5).fillCircle(38, 26, 2).fillCircle(30, 40, 3).fillCircle(54, 20, 1.6);
+}
+
+function bunker(g: G): void {
+  // 60x60: concrete pillbox with a firing slit facing right.
+  const pts = [
+    { x: 18, y: 6 }, { x: 42, y: 6 }, { x: 54, y: 18 }, { x: 54, y: 42 },
+    { x: 42, y: 54 }, { x: 18, y: 54 }, { x: 6, y: 42 }, { x: 6, y: 18 },
+  ];
+  g.fillStyle(0x55574f, 1).fillPoints(v2(pts), true);
+  g.lineStyle(2, 0x2a2b26, 1).strokePoints(v2(pts), true);
+  g.fillStyle(0x6e7066, 1).fillRect(16, 16, 28, 28);
+  g.fillStyle(0x121310, 1).fillRect(46, 22, 7, 16); // firing slit
+  g.fillStyle(0x3d3f38, 1).fillCircle(26, 30, 5); // hatch
+  g.lineStyle(1, 0x2a2b26, 0.6).strokeRect(16, 16, 28, 28);
+}
+
+function gate(g: G): void {
+  // 40x140: outpost wall with a gate, drawn vertically.
+  g.fillStyle(0x2f3236, 1).fillRect(8, 0, 22, 140);
+  g.fillStyle(0x474b50, 1).fillRect(8, 0, 22, 4).fillRect(8, 136, 22, 4);
+  g.fillStyle(0x23262a, 1).fillRect(10, 42, 18, 56); // gate opening
+  g.lineStyle(2, Palette.uiAmber, 0.9);
+  for (let y = 46; y < 96; y += 10) g.lineBetween(12, y, 26, y + 6); // hazard stripes
+  g.fillStyle(0x474b50, 1).fillRect(4, 34, 30, 10).fillRect(4, 96, 30, 10); // towers
+  g.fillStyle(Palette.fdcAccent, 1).fillCircle(19, 39, 2).fillCircle(19, 101, 2);
+}
+
+function floodlight(g: G): void {
+  // 24x24 tripod lamp facing right.
+  g.lineStyle(2, 0x2a2c2e, 1).lineBetween(8, 12, 2, 4).lineBetween(8, 12, 2, 20).lineBetween(8, 12, 16, 12);
+  g.fillStyle(0x4a4e52, 1).fillRoundedRect(10, 7, 9, 10, 2);
+  g.fillStyle(0xfff2c4, 1).fillRect(18, 8, 2.5, 8);
+}
+
+function crate(g: G): void {
+  g.fillStyle(0x5b5a3c, 1).fillRect(2, 2, 20, 20);
+  g.lineStyle(1.5, 0x3a392a, 1).strokeRect(2, 2, 20, 20).lineBetween(2, 2, 22, 22).lineBetween(22, 2, 2, 22);
+}
+
+function wreck(g: G): void {
+  // 64x40 burnt-out vehicle hull.
+  g.fillStyle(0x1f1e1b, 1).fillRoundedRect(4, 6, 56, 28, 6);
+  g.fillStyle(0x34322d, 1).fillRoundedRect(8, 9, 40, 22, 4);
+  g.fillStyle(0x24221e, 1).fillCircle(28, 20, 8);
+  g.lineStyle(3, 0x24221e, 1).lineBetween(28, 20, 54, 20);
+  g.fillStyle(0x6b2f12, 0.6).fillCircle(18, 14, 3).fillCircle(40, 27, 2.5);
+}
+
+function shell(g: G): void {
+  g.fillStyle(0x2a2d24, 1).fillEllipse(6, 4, 10, 6);
+  g.fillStyle(Palette.uiAmber, 1).fillEllipse(9, 4, 3, 4);
+}
+
+function flag(g: G): void {
+  // 24x32 rally flag, pole base at (6, 30).
+  g.lineStyle(2, 0xd8dde2, 1).lineBetween(6, 30, 6, 3);
+  g.fillStyle(Palette.fdcAccent, 1).fillTriangle(7, 3, 22, 8, 7, 14);
+  g.fillStyle(0x000000, 0.35).fillEllipse(6, 30, 8, 3);
+}
+
+function ring(g: G): void {
+  g.lineStyle(2.5, 0xffffff, 1).strokeCircle(32, 32, 29);
+}
+
+function shieldBubble(g: G): void {
+  g.fillStyle(Palette.shield, 0.12).fillCircle(32, 32, 30);
+  g.lineStyle(2, Palette.shield, 0.85).strokeCircle(32, 32, 29);
+  g.lineStyle(1, 0xffffff, 0.5).beginPath().arc(32, 32, 25, -2.4, -1.2).strokePath();
+}
+
+function scorch(g: G): void {
+  g.fillStyle(0x0c0b09, 0.7).fillCircle(32, 32, 20);
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + (i % 2) * 0.3;
+    g.fillStyle(0x0c0b09, 0.5).fillTriangle(32, 32, 32 + Math.cos(a - 0.2) * 20, 32 + Math.sin(a - 0.2) * 20, 32 + Math.cos(a) * (28 + (i % 3) * 3), 32 + Math.sin(a) * (28 + (i % 3) * 3));
+  }
+}
+
+function iconSupplies(g: G): void {
+  g.fillStyle(Palette.uiAmber, 1).fillRoundedRect(2, 6, 20, 14, 2);
+  g.fillStyle(Palette.uiPanel, 1).fillRect(2, 11, 20, 2.5).fillRect(10.5, 6, 3, 14);
+}
+
+function iconIntegrity(g: G): void {
+  g.fillStyle(Palette.fdcAccent, 1).fillPoints(v2([{ x: 12, y: 2 }, { x: 21, y: 6 }, { x: 19, y: 16 }, { x: 12, y: 22 }, { x: 5, y: 16 }, { x: 3, y: 6 }]), true);
+  g.fillStyle(Palette.uiPanel, 1).fillRect(10.5, 7, 3, 10);
+}
+
+function iconWave(g: G): void {
+  g.fillStyle(Palette.choirBody, 1).fillEllipse(12, 12, 18, 14);
+  g.fillStyle(Palette.choirCore, 1).fillCircle(12, 12, 3.5);
+}
+
 /** Generate every placeholder texture. Call once from the Boot scene. */
 export function generatePlaceholderArt(scene: Phaser.Scene): void {
   bake(scene, 'unit.trooper', 24, 24, trooper);
+  bake(scene, 'unit.rifle', 24, 24, trooper);
+  bake(scene, 'unit.heavy', 24, 24, heavyGunner);
+  bake(scene, 'enemy.warden', 32, 32, warden);
+  bake(scene, 'enemy.ironback', 48, 48, ironback);
+  bake(scene, 'cover.trench', 64, 36, trench);
+  bake(scene, 'cover.ruins', 64, 64, ruins);
+  bake(scene, 'cover.bunker', 60, 60, bunker);
+  bake(scene, 'prop.gate', 40, 140, gate);
+  bake(scene, 'prop.floodlight', 24, 24, floodlight);
+  bake(scene, 'prop.crate', 24, 24, crate);
+  bake(scene, 'prop.wreck', 64, 40, wreck);
+  bake(scene, 'fx.shell', 12, 8, shell);
+  bake(scene, 'fx.flag', 24, 32, flag);
+  bake(scene, 'fx.ring', 64, 64, ring);
+  bake(scene, 'fx.shieldBubble', 64, 64, shieldBubble);
+  bake(scene, 'fx.scorch', 64, 64, scorch);
+  bake(scene, 'icon.supplies', 24, 24, iconSupplies);
+  bake(scene, 'icon.integrity', 24, 24, iconIntegrity);
+  bake(scene, 'icon.wave', 24, 24, iconWave);
   bake(scene, 'enemy.skitter', 28, 28, skitter);
   bake(scene, 'cover.sandbags', 40, 60, sandbags);
   radialTexture(scene, 'fx.shadow', 64, '0,0,0', [[0, 0.6], [0.5, 0.4], [1, 0]]);
   radialTexture(scene, 'fx.light', 256, '255,255,255', [[0, 1], [0.25, 0.55], [0.6, 0.15], [1, 0]]);
   radialTexture(scene, 'fx.soft', 64, '255,255,255', [[0, 1], [0.4, 0.6], [1, 0]]);
   bake(scene, 'fx.muzzle', 24, 16, muzzleFlash);
+  bake(scene, 'fx.bolt', 32, 4, (g) => {
+    g.fillStyle(0xff4fd8, 0.3).fillRect(0, 0, 18, 4);
+    g.fillStyle(0xffb0f0, 1).fillRect(14, 1, 18, 2);
+  });
   bake(scene, 'fx.tracer', 32, 2, (g) => {
     g.fillStyle(Palette.tracer, 0.25).fillRect(0, 0, 16, 2);
     g.fillStyle(Palette.tracer, 1).fillRect(16, 0, 16, 2);

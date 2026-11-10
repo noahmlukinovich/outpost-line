@@ -1,16 +1,31 @@
 import Phaser from 'phaser';
+import { queueManifestArt, registerArt, type Manifest } from '../assets/art';
 import { generatePlaceholderArt } from '../assets/placeholderArt';
 
-/** Prepares textures (placeholder art now; manifest-driven sprite packs from M1) then starts the title. */
+/**
+ * Prepares all art: generates the vector placeholders, then loads anything listed in
+ * public/assets/manifest.json (sprite packs) on top of them.
+ */
 export class BootScene extends Phaser.Scene {
   constructor() {
     super('Boot');
   }
 
+  preload(): void {
+    this.load.json('manifest', 'assets/manifest.json');
+  }
+
   create(): void {
     generatePlaceholderArt(this);
     this.makeVignette();
-    this.scene.start('Title');
+    const manifest = this.cache.json.get('manifest') as Manifest | undefined;
+    if (manifest) queueManifestArt(this, manifest);
+    this.load.once('complete', () => {
+      registerArt(this, manifest);
+      this.scene.start('Title');
+    });
+    this.load.on('loaderror', (file: Phaser.Loader.File) => console.warn(`[art] failed to load ${file.src}`));
+    this.load.start();
   }
 
   private makeVignette(): void {

@@ -3,6 +3,8 @@ import { DPR, viewportSize } from './app/display';
 import { setupPwa } from './app/pwa';
 import { BootScene } from './scenes/BootScene';
 import { TitleScene } from './scenes/TitleScene';
+import { GameScene } from './scenes/GameScene';
+import { UIScene } from './ui/UIScene';
 
 setupPwa();
 
@@ -22,8 +24,11 @@ const game = new Phaser.Game({
   render: { antialias: true, powerPreference: 'high-performance' },
   input: { activePointers: 3 }, // allows two-finger pinch + one spare
   disableContextMenu: true,
-  scene: [BootScene, TitleScene],
+  scene: [BootScene, TitleScene, GameScene, UIScene],
 });
+
+// Dev-only handle for automated testing in the browser console.
+if (import.meta.env.DEV) (window as unknown as { __game: Phaser.Game }).__game = game;
 
 // Keep the canvas matched to the screen (rotation, split view, Stage Manager on iPad).
 let pending = 0;

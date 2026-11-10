@@ -1,0 +1,22 @@
+/** Draw order (higher = on top) for everything in the world. */
+export const Depth = {
+  ground: 0,
+  road: 1,
+  decal: 2,
+  terrain: 3,
+  shadow: 4,
+  cover: 5,
+  prop: 6,
+  arc: 7,
+  enemy: 10,
+  trooper: 12,
+  muzzle: 13,
+  shell: 14,
+  fx: 15,
+  light: 16,
+  shield: 17,
+  bars: 20,
+  overlay: 25,
+  handles: 30,
+  numbers: 40,
+} as const;

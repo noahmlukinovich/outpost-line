@@ -1,0 +1,20 @@
+{
+  "_readme": "Maps art IDs to sprites. Anything missing or 'generated' uses the built-in placeholder. See README: 'Using a sprite pack'.",
+  "atlases": {},
+  "art": {
+    "unit.rifle": { "type": "generated" },
+    "unit.heavy": { "type": "generated" },
+    "enemy.skitter": { "type": "generated" },
+    "enemy.warden": { "type": "generated" },
+    "enemy.ironback": { "type": "generated" },
+    "cover.sandbags": { "type": "generated" },
+    "cover.trench": { "type": "generated" },
+    "cover.ruins": { "type": "generated" },
+    "cover.bunker": { "type": "generated" },
+    "prop.gate": { "type": "generated" },
+    "prop.floodlight": { "type": "generated" },
+    "prop.crate": { "type": "generated" },
+    "prop.wreck": { "type": "generated" },
+    "fx.shell": { "type": "generated" }
+  }
+}

@@ -12,6 +12,7 @@ import { ART_SCALE } from '../assets/placeholderArt';
 import { Palette, css } from '../assets/palette';
 import { Pool } from '../core/Pool';
 import { sfx } from '../audio/Sfx';
+import { save } from '../save/SaveSystem';
 
 type Img = Phaser.GameObjects.Image;
 
@@ -75,7 +76,6 @@ export class TitleScene extends Phaser.Scene {
   private spawnTimer = 0;
   private statusText!: Phaser.GameObjects.Text;
   private statusTimer = 0;
-  private deployed = false;
 
   constructor() {
     super('Title');
@@ -88,7 +88,6 @@ export class TitleScene extends Phaser.Scene {
     this.tracers = [];
     this.decals = [];
     this.troopers = [];
-    this.deployed = sfx.ready;
 
     this.buildBattlefield();
     this.buildUi();
@@ -269,13 +268,10 @@ export class TitleScene extends Phaser.Scene {
     const draw = (pressed: boolean) => {
       btn.clear();
       btn.fillStyle(0x000000, 0.45).fillRoundedRect(bx + 3, by + 5, bw, bh, 8);
-      btn.fillStyle(this.deployed ? Palette.uiDim : Palette.uiAmber, 1).fillRoundedRect(bx, by + (pressed ? 2 : 0), bw, bh, 8);
-      label.setText(this.deployed ? 'DEPLOYED' : 'TAP TO DEPLOY').setY(by + bh / 2 + (pressed ? 2 : 0));
-      hint.setText(
-        this.deployed
-          ? 'Audio on. Tap the battlefield to call in a strike.\nFirst mission arrives in Milestone 1.'
-          : 'Tap to enable sound.',
-      );
+      btn.fillStyle(Palette.uiAmber, 1).fillRoundedRect(bx, by + (pressed ? 2 : 0), bw, bh, 8);
+      label.setText('DEPLOY').setY(by + bh / 2 + (pressed ? 2 : 0));
+      const best = save.mission('outpost01')?.stars ?? 0;
+      hint.setText(`Mission 1: Firebase Ridgeline\nBest: ${'★'.repeat(best)}${'☆'.repeat(3 - best)}`);
     };
     draw(false);
 
@@ -286,9 +282,8 @@ export class TitleScene extends Phaser.Scene {
       draw(true);
     });
     zone.on('pointerup', () => {
-      this.deployed = true;
       sfx.click();
-      draw(false);
+      this.scene.start('Game', { missionId: 'outpost01' });
     });
     zone.on('pointerout', () => draw(false));
 
@@ -321,7 +316,6 @@ export class TitleScene extends Phaser.Scene {
 
   private onTapBattlefield(p: Phaser.Input.Pointer): void {
     sfx.unlock();
-    if (!this.deployed) return;
     // Pointer coords are in device pixels; world coords are CSS px (camera zoom = DPR).
     const pt = this.cameras.main.getWorldPoint(p.x, p.y);
     this.explode(pt.x, pt.y);
