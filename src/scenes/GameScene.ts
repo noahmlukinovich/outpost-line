@@ -73,6 +73,7 @@ export class GameScene extends Phaser.Scene {
     const s = save.settings;
     this.view.fx.damageNumbers = s.damageNumbers;
     this.view.fx.screenShake = s.screenShake;
+    this.view.fx.setQuality(s.effectsHigh);
     sfx.setEnabled(s.sound);
   }
 

@@ -293,3 +293,24 @@ export const SoldierLooks: Record<string, SoldierLook> = {
   'unit.engineer': { weapon: 'tool', pack: 'tools', armor: 0x6e6a5e, armorDark: 0x46443c, accent: 0xf2a93b, stripes: true, lamp: true, helmet: 0xf2c14a },
   'unit.medic': { weapon: 'medkit', pack: 'medic', armor: 0xb9c2c9, armorDark: 0x7d8790, accent: 0x3fbf6a, cross: true, helmet: 0xe8eef2 },
 };
+
+/** Muzzle tip and ejection port per weapon, in the soldier's 40×28 design box (body center 12,14). */
+export const WEAPON_POINTS: Record<WeaponKind, { muzzle: [number, number]; eject: [number, number] }> = {
+  carbine: { muzzle: [32.5, 17.6], eject: [17, 16] },
+  smg: { muzzle: [27.5, 17.6], eject: [16, 16] },
+  dmr: { muzzle: [37, 17.7], eject: [18, 16] },
+  shotgun: { muzzle: [31, 17.6], eject: [17, 15.8] },
+  launcher: { muzzle: [32.5, 17.8], eject: [12, 16] },
+  rocket: { muzzle: [36.5, 17.6], eject: [3, 17.6] },
+  gatling: { muzzle: [36, 17.4], eject: [14, 21] },
+  sniper: { muzzle: [38.5, 17.6], eject: [18, 16] },
+  amr: { muzzle: [40, 17.7], eject: [19, 15.8] },
+  binocs: { muzzle: [22, 14], eject: [16, 14] },
+  tool: { muzzle: [25.5, 17.8], eject: [15, 16.4] },
+  medkit: { muzzle: [25.5, 17.8], eject: [15, 16.4] },
+};
+
+/** Weapon kind used by a soldier art ID (falls back to a carbine for sprite-pack art). */
+export function weaponOf(artId: string): WeaponKind {
+  return SoldierLooks[artId]?.weapon ?? 'carbine';
+}

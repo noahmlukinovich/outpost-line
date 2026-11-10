@@ -116,6 +116,10 @@ export class Sfx {
   flame(): void { if (this.ok('flame', 150)) this.burst(500, 0.4, 0.6, 0.5, 0.6, 'lowpass'); }
   promote(): void { if (this.ok('promote', 200)) { this.tone('triangle', 660, 660, 0.1, 0.12); this.tone('triangle', 990, 990, 0.18, 0.12, 0.1); } }
 
+  casing(): void { if (this.ok('casing', 70)) this.tone('triangle', 3200 + Math.random() * 1200, 2600, 0.05, 0.025); }
+  gatling(): void { if (this.ok('gatling', 35)) this.burst(1500, 1.1, 0.06, 0.35, 0.5); }
+  shotgun(): void { if (this.ok('shotgun', 60)) { this.burst(900, 0.7, 0.18, 0.6, 0.35); } }
+
   click(): void { if (this.ok('click', 30)) this.tone('square', 880, 440, 0.08, 0.12); }
 }
 

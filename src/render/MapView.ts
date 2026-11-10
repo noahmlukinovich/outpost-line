@@ -13,6 +13,8 @@ export class MapView {
   /** Pulsing outlines on empty cover points. */
   private coverRings: { ring: Phaser.GameObjects.Image; index: number }[] = [];
   private breach!: Phaser.GameObjects.Image;
+  private lamps: Phaser.GameObjects.Image[] = [];
+  private flicker = 0;
   private t = 0;
 
   constructor(
@@ -60,8 +62,9 @@ export class MapView {
       if (d.prop === 'floodlight') {
         const angle = Math.atan2(map.height / 2 - d.y, map.width / 2 - d.x);
         addArt(scene, 'prop.floodlight', d.x, d.y).setRotation(angle).setDepth(Depth.prop);
-        scene.add.image(d.x + Math.cos(angle) * 120, d.y + Math.sin(angle) * 120, 'fx.light')
+        const lamp = scene.add.image(d.x + Math.cos(angle) * 120, d.y + Math.sin(angle) * 120, 'fx.light')
           .setDisplaySize(380, 380).setTint(0xffe2b0).setAlpha(0.16).setBlendMode(Phaser.BlendModes.ADD).setDepth(Depth.light);
+        this.lamps.push(lamp);
       } else if (d.prop === 'crate') {
         addArt(scene, 'prop.crate', d.x, d.y).setRotation((d.x * 7) % 3).setDepth(Depth.prop);
       } else if (d.prop === 'wreck') {
@@ -192,5 +195,13 @@ export class MapView {
       ring.setAlpha(placing ? 0.45 + 0.45 * pulse : 0.18 + 0.12 * pulse);
     }
     this.breach.setAlpha(0.25 + 0.15 * Math.sin(this.t * 2.3));
+    // Floodlights hum with a gentle flicker, and now and then stutter.
+    this.flicker -= dt;
+    const stutter = this.flicker < 0 && this.flicker > -0.18;
+    if (this.flicker < -0.18) this.flicker = 4 + Math.random() * 8;
+    for (let i = 0; i < this.lamps.length; i++) {
+      const base = 0.15 + 0.012 * Math.sin(this.t * 23 + i * 7);
+      this.lamps[i].setAlpha(stutter && i === 0 ? base * (Math.random() < 0.5 ? 0.3 : 1) : base);
+    }
   }
 }

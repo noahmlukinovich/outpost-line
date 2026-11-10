@@ -14,8 +14,11 @@ import type { Building, Enemy, Placeable, Projectile, Squad, Trooper, Turret } f
 import type { SimEvents } from '../sim/events';
 import type { World } from '../sim/World';
 import { Depth } from './depth';
-import { Effects } from './Effects';
+import { Effects, FIRE_RAMP } from './Effects';
 import { MapView } from './MapView';
+import { WEAPON_POINTS, weaponOf } from '../assets/soldiers';
+import { TURRET_FX, WEAPON_FX, type WeaponFx } from './weaponFx';
+import { FLASH_ORIGIN } from '../assets/fxArt';
 
 /** Units are drawn a bit larger than their simulation size so they read well on small screens. */
 export const UNIT_DRAW_SCALE = 1.4;
@@ -105,6 +108,52 @@ export class WorldRenderer implements SimEvents {
       this.freeEnemyViews.set(`enemy.${id}`, list);
     }
     world.events = this;
+    this.fx.startAmbient(world.map.width, world.map.height);
+    this.fx.onClink = () => sfx.casing();
+  }
+
+  // ================================================================== weapon geometry
+
+  private tmpP = { x: 0, y: 0 };
+  private tmpE = { x: 0, y: 0 };
+  private shotCount = 0;
+
+  /** World position of a point given in the soldier's design box, for a trooper. */
+  private soldierPoint(t: Trooper, px: number, py: number, out: { x: number; y: number }): { x: number; y: number } {
+    const fwd = (px - 12) * UNIT_DRAW_SCALE, lat = (py - 14) * UNIT_DRAW_SCALE;
+    const c = Math.cos(t.angle), s = Math.sin(t.angle);
+    out.x = t.x + c * fwd - s * lat;
+    out.y = t.y + s * fwd + c * lat;
+    return out;
+  }
+
+  /** Muzzle flash + glow + smoke + casing for a weapon, from a trooper. Returns the muzzle point. */
+  private fireFx(s: Squad, t: Trooper, override?: WeaponFx): { x: number; y: number } {
+    const idx = s.troopers.indexOf(t);
+    const kind = weaponOf(trooperArt(s, Math.max(0, idx)));
+    const pts = WEAPON_POINTS[kind];
+    const style = override ?? WEAPON_FX[kind];
+    const m = this.soldierPoint(t, pts.muzzle[0], pts.muzzle[1], this.tmpP);
+    this.muzzleFlash(m.x, m.y, t.angle, style);
+    this.shotCount++;
+    if (style.casing && this.shotCount % style.casingEvery === 0) {
+      const e = this.soldierPoint(t, pts.eject[0], pts.eject[1], this.tmpE);
+      this.fx.casing(e.x, e.y, t.angle, style.casing);
+      if (kind === 'gatling' && this.shotCount % 3 === 0) this.fx.casing(e.x, e.y, t.angle, 'link');
+    }
+    return m;
+  }
+
+  private muzzleFlash(x: number, y: number, angle: number, style: WeaponFx): void {
+    const tex = style.flash[(Math.random() * style.flash.length) | 0];
+    const len = style.flashLen * (0.85 + Math.random() * 0.35);
+    const o = FLASH_ORIGIN[tex] ?? 0;
+    const sc = len / (this.scene.textures.get(tex).getSourceImage().width * (1 - o));
+    const rot = angle + (Math.random() - 0.5) * 0.12;
+    this.fx.flash(tex, x, y, rot, sc, sc * 1.15, 0.055, style.flashTint, 1, Depth.muzzle, o);
+    this.fx.light(x, y, style.glow, style.glowColor, 0.42, 0.07);
+    if (style.smoke) this.fx.muzzleSmoke(x, y, angle, style.smoke);
+    if (style.shake) this.fx.shake(style.shake, 70);
   }
 
   // ================================================================== views
@@ -360,7 +409,7 @@ export class WorldRenderer implements SimEvents {
       if (p.kind === 'rocket') {
         sv.shadow.setVisible(true).setPosition(x + 2, y + 3);
         sv.shell.setVisible(true).setPosition(x, y).setRotation(dir).setTint(0xff9a6a).setScale(art('fx.shell').scale * UNIT_DRAW_SCALE * 1.3);
-        if (Math.random() < 0.6) this.fx.smoke.emitParticleAt(x - Math.cos(dir) * 6, y - Math.sin(dir) * 6, 1);
+        this.fx.rocketTrail(x, y, dir);
         continue;
       }
       const h = Math.sin(Math.PI * k) * Math.min(70, Math.hypot(p.tx - p.x0, p.ty - p.y0) * 0.3);
@@ -378,6 +427,7 @@ export class WorldRenderer implements SimEvents {
     v.shadow.setVisible(visible);
     if (!visible) return;
     const x = lerp(t.prevX, t.x, alpha), y = lerp(t.prevY, t.y, alpha);
+    if (this.fx.high && Math.abs(t.x - t.prevX) + Math.abs(t.y - t.prevY) > 1.2 && Math.random() < 0.12) this.fx.dust.emitParticleAt(x, y + 4, 1);
     v.body.setPosition(x, y).setRotation(t.angle + v.rot);
     v.shadow.setPosition(x + 3, y + 4);
   }
@@ -402,12 +452,16 @@ export class WorldRenderer implements SimEvents {
       v.body.setTint(0xffffff);
     }
 
+    // Wounded aliens leave an ichor trail.
+    if (this.fx.high && e.hp < e.maxHp * 0.5 && !stunned && Math.random() < dt * 3) {
+      this.fx.decal('fx.splat', x, y, ART_SCALE * 0.35, 0xffffff, 6, 0.8);
+    }
     // Burning: little flames.
     if (e.burnT > 0) {
       v.burnFx -= dt;
       if (v.burnFx <= 0) {
         v.burnFx = 0.12;
-        this.fx.fire.emitParticleAt(x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r, 1);
+        this.fx.puff('fx.fireball', x + (Math.random() - 0.5) * r, y + (Math.random() - 0.5) * r, 6 + Math.random() * 4, 14, 0, 0, 0.4, 0.9, FIRE_RAMP, true, Depth.fx, 0.1, 26);
       }
     }
 
@@ -454,51 +508,70 @@ export class WorldRenderer implements SimEvents {
   }
 
   shot(s: Squad, t: Trooper, toX: number, toY: number, hit: boolean): void {
-    const reach = s.def.crewServed ? 22 : 18;
-    const mx = t.x + Math.cos(t.angle) * reach, my = t.y + Math.sin(t.angle) * reach;
-    const big = s.stats.damage >= 30;
-    this.fx.flash('fx.muzzle', mx, my, t.angle, ART_SCALE * (big ? 1.4 : 0.9), ART_SCALE * (big ? 2 : 1.2), big ? 0.08 : 0.05, 0xffffff, 1, Depth.muzzle, 0);
-    this.fx.light(mx, my, big ? 110 : 60, 0xffd890, big ? 0.5 : 0.35, 0.06);
-    this.fx.tracer(mx, my, toX, toY);
-    if (hit) this.fx.sparks.explode(big ? 5 : 2, toX, toY);
-    if (big) {
-      this.fx.shake(0.0015, 60);
-      sfx.sniper();
-    } else sfx.rifle();
+    const idx = s.troopers.indexOf(t);
+    const kind = weaponOf(trooperArt(s, Math.max(0, idx)));
+    const style = WEAPON_FX[kind];
+    const m = this.fireFx(s, t);
+    this.fx.tracer(m.x, m.y, toX, toY, false, style.tracerColor, style.tracerLen, style.tracerWidth, style.tracerSpeed);
+    if (hit) {
+      this.fx.sparks.explode(kind === 'amr' || kind === 'sniper' ? 6 : 2, toX, toY);
+      if (Math.random() < 0.35) this.fx.gore.explode(2, toX, toY);
+    } else this.fx.groundHit(toX, toY);
+    if (kind === 'sniper' || kind === 'amr') sfx.sniper();
+    else if (kind === 'gatling') sfx.gatling();
+    else if (kind === 'shotgun') sfx.shotgun();
+    else sfx.rifle();
   }
 
   turretShot(_s: Squad, tu: Turret, toX: number, toY: number): void {
-    const mx = tu.x + Math.cos(tu.angle) * 16, my = tu.y + Math.sin(tu.angle) * 16;
-    this.fx.flash('fx.muzzle', mx, my, tu.angle, ART_SCALE * 0.8, ART_SCALE * 1.1, 0.04, 0xffffff, 1, Depth.muzzle, 0);
-    this.fx.tracer(mx, my, toX, toY);
+    // Twin barrels fire alternately.
+    this.shotCount++;
+    const side = this.shotCount % 2 ? -1.5 : 1.5;
+    const c = Math.cos(tu.angle), sn = Math.sin(tu.angle);
+    const mx = tu.x + c * 21 - sn * side * UNIT_DRAW_SCALE, my = tu.y + sn * 21 + c * side * UNIT_DRAW_SCALE;
+    this.muzzleFlash(mx, my, tu.angle, TURRET_FX);
+    this.fx.tracer(mx, my, toX, toY, false, TURRET_FX.tracerColor, 28, 1.3, 1800);
+    if (this.shotCount % 2 === 0) this.fx.casing(tu.x, tu.y, tu.angle, 'small');
     sfx.turret();
   }
 
-  shellFired(_s: Squad, t: Trooper, p: Projectile): void {
-    const mx = t.x + Math.cos(t.angle) * 20, my = t.y + Math.sin(t.angle) * 20;
-    this.fx.flash('fx.muzzle', mx, my, t.angle, ART_SCALE * 1.3, ART_SCALE * 1.8, 0.08, 0xffd0a0, 1, Depth.muzzle, 0);
-    this.fx.smoke.explode(3, mx, my);
+  shellFired(s: Squad, t: Trooper, p: Projectile): void {
     if (p.kind === 'rocket') {
-      // Back-blast.
-      this.fx.smoke.explode(5, t.x - Math.cos(t.angle) * 14, t.y - Math.sin(t.angle) * 14);
+      const m = this.fireFx(s, t);
+      // Back-blast out of the rear of the tube.
+      const pts = WEAPON_POINTS.rocket;
+      const b = this.soldierPoint(t, pts.eject[0], pts.eject[1], this.tmpE);
+      const back = t.angle + Math.PI;
+      this.fx.flash('fx.mf.backblast', b.x, b.y, back, 40 / 128, 52 / 128, 0.12, 0xffc890, 0.9, Depth.muzzle, FLASH_ORIGIN['fx.mf.backblast']);
+      for (let i = 0; i < 5; i++) {
+        const a = back + (Math.random() - 0.5) * 0.9;
+        const sp = 60 + Math.random() * 80;
+        this.fx.puff('fx.smoke', b.x, b.y, 10, 36, Math.cos(a) * sp, Math.sin(a) * sp, 1.2 + Math.random() * 0.6, 0.45, 0xc8c2b8, false, Depth.fx, 0.08, 4);
+      }
+      this.fx.dust.explode(4, b.x, b.y);
+      void m;
       sfx.rocket();
-    } else sfx.launcher();
+    } else if (s.stats.grenade && p.stun > 0) {
+      // Thrown breach charge: no muzzle flash, just a little toss.
+      sfx.melee();
+    } else {
+      this.fireFx(s, t);
+      sfx.launcher();
+    }
   }
 
-  flame(_s: Squad, t: Trooper, angle: number, range: number, arcDeg: number): void {
-    const half = (arcDeg * Math.PI) / 360;
-    for (let i = 0; i < 26; i++) {
-      const a = angle + (Math.random() * 2 - 1) * half;
-      const d = Math.random() * range;
-      this.fx.fire.emitParticleAt(t.x + Math.cos(a) * d, t.y + Math.sin(a) * d, 1);
-    }
-    this.fx.light(t.x + Math.cos(angle) * range * 0.5, t.y + Math.sin(angle) * range * 0.5, range * 2.2, 0xff8a3a, 0.5, 0.35);
+  flame(s: Squad, t: Trooper, angle: number, range: number, arcDeg: number): void {
+    // The flamer nozzle sits under the shotgun barrel.
+    const n = this.soldierPoint(t, 29, 20.2, this.tmpP);
+    void s;
+    this.fx.flameStream(n.x, n.y, angle, range, arcDeg);
+    this.fx.light(n.x + Math.cos(angle) * range * 0.5, n.y + Math.sin(angle) * range * 0.5, range * 2.6, 0xff8a3a, 0.55, 0.45);
     sfx.flame();
   }
 
-  explosion(x: number, y: number, radius: number): void {
-    this.fx.explosion(x, y, radius);
-    this.fx.shake(0.0025, 110);
+  explosion(x: number, y: number, radius: number, kind: 'shell' | 'rocket'): void {
+    this.fx.explosion(x, y, radius, kind === 'rocket');
+    this.fx.shake(kind === 'rocket' ? 0.004 : 0.0025, kind === 'rocket' ? 160 : 110);
     sfx.explosion();
   }
 
@@ -507,6 +580,8 @@ export class WorldRenderer implements SimEvents {
     if (v) {
       if (shieldHit) {
         v.shieldFlash = 1;
+        const a = Math.random() * Math.PI * 2, r = e.def.radius * 1.5;
+        this.fx.flash('fx.hexring', e.x + Math.cos(a) * r, e.y + Math.sin(a) * r, a, ART_SCALE * 0.5, ART_SCALE * 0.9, 0.18, Palette.shield, 0.9, Depth.shield);
         sfx.shieldHit();
       } else if (amount >= 1) {
         v.flash = 0.06;
@@ -525,12 +600,28 @@ export class WorldRenderer implements SimEvents {
   }
 
   enemyKilled(e: Enemy, bounty: number): void {
-    const big = e.def.radius > 14;
-    this.fx.gore.explode(big ? 26 : 10, e.x, e.y);
-    this.fx.decal('fx.splat', e.x, e.y, ART_SCALE * (big ? 2.2 : 1.1), 0xffffff, 20);
-    if (big) {
-      this.fx.shake(0.004, 160);
-      this.fx.light(e.x, e.y, 160, Palette.choirCore, 0.5, 0.3);
+    const id = e.def.id;
+    if (id === 'ironback') {
+      this.fx.debris(e.x, e.y, 7, 'fx.plate', 160, 1.4);
+      this.fx.debris(e.x, e.y, 8, 'fx.gib', 190, 1.4);
+      this.fx.gore.explode(30, e.x, e.y);
+      this.fx.dust.explode(14, e.x, e.y);
+      this.fx.decal('fx.splat', e.x, e.y, ART_SCALE * 2.6, 0xffffff, 26);
+      this.fx.light(e.x, e.y, 200, Palette.choirCore, 0.55, 0.35);
+      this.fx.shake(0.005, 200);
+      sfx.roar();
+    } else if (id === 'warden') {
+      this.fx.ring(e.x, e.y, 30, 4, 0xff6ae0, 0.25); // implode
+      this.fx.ring(e.x, e.y, 6, 46, Palette.shield, 0.35);
+      this.fx.light(e.x, e.y, 170, 0xff6ae0, 0.6, 0.3);
+      this.fx.shards.explode(12, e.x, e.y);
+      this.fx.debris(e.x, e.y, 5, 'fx.gib', 160, 1.2);
+      this.fx.gore.explode(14, e.x, e.y);
+      this.fx.decal('fx.splat', e.x, e.y, ART_SCALE * 1.5, 0xffffff, 22);
+    } else {
+      this.fx.gore.explode(10, e.x, e.y);
+      this.fx.debris(e.x, e.y, 3, 'fx.gib', 130, 0.9);
+      this.fx.decal('fx.splat', e.x, e.y, ART_SCALE * 1.1, 0xffffff, 20);
     }
     this.fx.number(e.x, e.y - 18, `+${bounty}`, Palette.uiAmber);
     this.releaseEnemy(e);
@@ -555,9 +646,11 @@ export class WorldRenderer implements SimEvents {
   enemyShot(e: Enemy, _s: Squad, t: Trooper): void {
     const a = Math.atan2(t.y - e.y, t.x - e.x);
     const x0 = e.x + Math.cos(a) * e.def.radius, y0 = e.y + Math.sin(a) * e.def.radius;
+    this.fx.flash('fx.mf.plasma', x0, y0, 0, 14 / 64, 24 / 64, 0.12, 0xffffff, 1, Depth.muzzle);
     this.fx.tracer(x0, y0, t.x, t.y, true);
-    this.fx.light(x0, y0, 50, 0xff4fd8, 0.4, 0.08);
-    this.fx.sparks.explode(2, t.x, t.y);
+    this.fx.light(x0, y0, 70, 0xff4fd8, 0.5, 0.1);
+    this.fx.flash('fx.mf.plasma', t.x, t.y, 0, 10 / 64, 20 / 64, 0.15, 0xffffff, 0.8, Depth.muzzle);
+    this.fx.sparks.explode(3, t.x, t.y);
     sfx.plasma();
   }
 
@@ -566,9 +659,12 @@ export class WorldRenderer implements SimEvents {
     sfx.melee();
   }
 
-  trooperLost(_s: Squad, t: Trooper): void {
-    this.fx.dust.explode(5, t.x, t.y);
-    this.fx.decal('fx.splat', t.x, t.y, ART_SCALE * 0.6, 0x8a1a1a, 12);
+  trooperLost(s: Squad, t: Trooper): void {
+    this.fx.dust.explode(6, t.x, t.y);
+    this.fx.decal('fx.splat', t.x, t.y, ART_SCALE * 0.7, 0x8a1a1a, 12);
+    // A fallen marine stays on the ground for a while.
+    const r = art(trooperArt(s, Math.max(0, s.troopers.indexOf(t))));
+    this.fx.decal(r.key, t.x, t.y, r.scale * UNIT_DRAW_SCALE, 0x5a4a48, 14, 0.85);
     sfx.trooperDown();
   }
 

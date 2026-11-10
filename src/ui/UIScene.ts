@@ -109,7 +109,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   // Menu / end
   private menu!: Phaser.GameObjects.Container;
   private menuButtons: Button[] = [];
-  private toggles: { btn: Button; key: 'damageNumbers' | 'screenShake' | 'sound'; label: string }[] = [];
+  private toggles: { btn: Button; key: 'damageNumbers' | 'screenShake' | 'sound' | 'effectsHigh'; label: string }[] = [];
   private end!: Phaser.GameObjects.Container;
   private endButtons: Button[] = [];
   private endTitle!: Phaser.GameObjects.Text;
@@ -303,7 +303,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
 
   private buildMenu(): void {
     this.dim = this.add.rectangle(0, 0, this.W, this.H, 0x000000, 0.6).setOrigin(0).setVisible(false);
-    const pw = 340, ph = 420;
+    const pw = 340, ph = 478;
     this.menu = this.add.container((this.W - pw) / 2, (this.H - ph) / 2).setVisible(false);
     const bg = panelBg(this, pw, ph, 0.97);
     const title = text(this, pw / 2, 32, 'COMMAND MENU', 20, Palette.uiAmber, '900').setOrigin(0.5).setLetterSpacing(3);
@@ -317,7 +317,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
       y += 58;
       return b;
     };
-    const toggle = (key: 'damageNumbers' | 'screenShake' | 'sound', label: string) => {
+    const toggle = (key: 'damageNumbers' | 'screenShake' | 'sound' | 'effectsHigh', label: string) => {
       const b = mk(label, 'secondary', () => {
         save.setSetting(key, !save.settings[key]);
         this.gs.applySettings();
@@ -328,6 +328,7 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
     toggle('damageNumbers', 'Damage numbers');
     toggle('screenShake', 'Screen shake');
     toggle('sound', 'Sound');
+    toggle('effectsHigh', 'Effects');
     mk('Restart mission', 'danger', () => this.gs.restart());
     mk('Quit to title', 'danger', () => this.gs.quit());
     mk('Resume', 'primary', () => this.closeMenu());
@@ -335,7 +336,10 @@ export class UIScene extends Phaser.Scene implements UiHitTester {
   }
 
   private refreshToggles(): void {
-    for (const t of this.toggles) t.btn.setLabel(`${t.label}:  ${save.settings[t.key] ? 'ON' : 'OFF'}`);
+    for (const t of this.toggles) {
+      const on = save.settings[t.key];
+      t.btn.setLabel(`${t.label}:  ${t.key === 'effectsHigh' ? (on ? 'HIGH' : 'LOW') : on ? 'ON' : 'OFF'}`);
+    }
   }
 
   private buildEnd(): void {

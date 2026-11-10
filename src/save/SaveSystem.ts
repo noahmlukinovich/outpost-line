@@ -12,6 +12,8 @@ export interface Settings {
   damageNumbers: boolean;
   screenShake: boolean;
   sound: boolean;
+  /** High-quality effects (casings, extra particles, ambient dust). */
+  effectsHigh: boolean;
 }
 
 export interface MissionProgress {
@@ -28,7 +30,7 @@ export interface SaveData {
 function defaults(): SaveData {
   return {
     version: VERSION,
-    settings: { damageNumbers: true, screenShake: true, sound: true },
+    settings: { damageNumbers: true, screenShake: true, sound: true, effectsHigh: true },
     missions: {},
   };
 }

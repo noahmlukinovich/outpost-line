@@ -9,6 +9,7 @@ import Phaser from 'phaser';
 import { Palette } from './palette';
 import { SOLDIER_H, SOLDIER_ORIGIN, SOLDIER_W, SoldierLooks, drawSoldier } from './soldiers';
 import { depot, reactor, turret } from './structures';
+import { generateFxArt } from './fxArt';
 
 type G = Phaser.GameObjects.Graphics;
 
@@ -272,6 +273,7 @@ function iconWave(g: G): void {
 
 /** Generate every placeholder texture. Call once from the Boot scene. */
 export function generatePlaceholderArt(scene: Phaser.Scene): void {
+  generateFxArt(scene);
   for (const [id, look] of Object.entries(SoldierLooks)) {
     bake(scene, id, SOLDIER_W, SOLDIER_H, (g) => drawSoldier(g, look));
     ART_ORIGINS[id] = SOLDIER_ORIGIN;
